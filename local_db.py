@@ -1,13 +1,14 @@
 """
 ماژول دیتابیس محلی (SQLite) برای کاربرانی که Notion ندارند.
-هر کاربر با chat_id شناخته می‌شود. ساختار جدول‌ها موازی با فیلدهای Notion طراحی شده
-(Name, Date, Category, Status, StudyMinutes, TestCount) تا منطق مشترک با نسخه‌ی Notion کار کند.
+سیستم احراز هویت: نام کاربری و رمز عبور (بدون کد دعوت).
 """
 
 import sqlite3
 import os
 import secrets
 from datetime import datetime
+import hashlib
+import json
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot.db")
 
@@ -19,15 +20,26 @@ def get_connection():
 
 
 def init_db():
-    """جدول‌های لازم را در صورت نبود می‌سازد. در ابتدای اجرای بات یک‌بار صدا زده می‌شود."""
+    """جدول‌های لازم را می‌سازد."""
     conn = get_connection()
     cur = conn.cursor()
 
+    # جدول کاربران
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             chat_id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             created_at TEXT NOT NULL
+        )
+    """)
+
+    # جدول احراز هویت (نام کاربری و رمز عبور)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS credentials (
+            chat_id INTEGER PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            FOREIGN KEY (chat_id) REFERENCES users(chat_id)
         )
     """)
 
@@ -46,16 +58,12 @@ def init_db():
         )
     """)
 
-    # کش محلیِ متن‌های «هدف/Level Up/نوت» قالب هفتگی و «اولویت/اهداف» قالب روزانه.
-    # مستقل از این‌که کاربر Notion داره یا نه: حتی برای کاربر Notion هم این کش نگه
-    # داشته می‌شه تا اگه در Notion خالی بود و کاربر تو چت جواب داد، دفعه‌ی بعد بشه
-    # بین «ویرایش قبلی» یا «نوشتن از نو» یکی رو انتخاب کرد (به‌جای پرسیدن مجدد از صفر).
     cur.execute("""
         CREATE TABLE IF NOT EXISTS template_meta_cache (
             chat_id INTEGER NOT NULL,
-            scope TEXT NOT NULL,       -- 'weekly' یا 'daily'
-            period_key TEXT NOT NULL,  -- برای هفتگی: تاریخ شنبه (YYYY-MM-DD)، برای روزانه: تاریخ همون روز
-            data_json TEXT NOT NULL,   -- json از فیلدهای اون scope
+            scope TEXT NOT NULL,
+            period_key TEXT NOT NULL,
+            data_json TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (chat_id, scope, period_key)
         )
@@ -66,47 +74,93 @@ def init_db():
 
 
 # ---------------------------------------------------------------------------
-# مدیریت کاربران
+# مدیریت احراز هویت (ثبت‌نام و ورود)
 # ---------------------------------------------------------------------------
 
-def is_registered(chat_id: int) -> bool:
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def register_user_credentials(username: str, password: str) -> tuple[bool, str]:
+    """
+    ثبت‌نام کاربر جدید با نام کاربری و رمز عبور.
+    بازگشت: (موفقیت, پیام)
+    """
+    conn = get_connection()
+    try:
+        # بررسی تکراری نبودن نام کاربری
+        existing = conn.execute("SELECT chat_id FROM credentials WHERE username = ?", (username,)).fetchone()
+        if existing:
+            return False, "این نام کاربری قبلاً گرفته شده است."
+
+        chat_id = secrets.randbelow(1000000000) + 100000000 # تولید چت آیدی تصادفی برای وب
+        password_hash = _hash_password(password)
+        
+        now = datetime.utcnow().isoformat()
+        
+        conn.execute("INSERT INTO users (chat_id, name, created_at) VALUES (?, ?, ?)",
+                     (chat_id, username, now))
+        conn.execute("INSERT INTO credentials (chat_id, username, password_hash) VALUES (?, ?, ?)",
+                     (chat_id, username, password_hash))
+        conn.commit()
+        return True, str(chat_id) # چت آیدی را برمی‌گردانیم تا در سشن ذخیره شود
+    except Exception as e:
+        return False, f"خطا در ثبت‌نام: {str(e)}"
+    finally:
+        conn.close()
+
+
+def verify_credentials(username: str, password: str) -> tuple[bool, int | None]:
+    """
+    بررسی نام کاربری و رمز عبور.
+    بازگشت: (موفقیت, chat_id)
+    """
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT chat_id, password_hash FROM credentials WHERE username = ?", (username,)).fetchone()
+        if not row:
+            return False, None
+        
+        if row["password_hash"] == _hash_password(password):
+            return True, row["chat_id"]
+        else:
+            return False, None
+    except Exception:
+        return False, None
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# سایر توابع کاربری
+# ---------------------------------------------------------------------------
+
+def is_registered_by_chat_id(chat_id: int) -> bool:
     conn = get_connection()
     row = conn.execute("SELECT 1 FROM users WHERE chat_id = ?", (chat_id,)).fetchone()
     conn.close()
     return row is not None
 
 
-def register_user(chat_id: int, name: str):
+def get_user_name_by_chat_id(chat_id: int) -> str:
     conn = get_connection()
-    conn.execute(
-        "INSERT OR IGNORE INTO users (chat_id, name, created_at) VALUES (?, ?, ?)",
-        (chat_id, name, datetime.utcnow().isoformat()),
-    )
-    conn.commit()
+    row = conn.execute("SELECT name FROM users WHERE chat_id = ?", (chat_id,)).fetchone()
     conn.close()
+    return row["name"] if row else "کاربر"
 
 
 def get_all_local_chat_ids() -> list[int]:
-    """لیست همه‌ی chat_id های ثبت‌شده در SQLite را برمی‌گرداند (برای لوپ زدن Jobها)."""
     conn = get_connection()
     rows = conn.execute("SELECT chat_id FROM users").fetchall()
     conn.close()
     return [r["chat_id"] for r in rows]
 
 
-def get_user_name(chat_id: int) -> str:
-    conn = get_connection()
-    row = conn.execute("SELECT name FROM users WHERE chat_id = ?", (chat_id,)).fetchone()
-    conn.close()
-    return row["name"] if row else "دانش‌آموز"
-
-
 # ---------------------------------------------------------------------------
-# مدیریت پارت‌های برنامه
+# مدیریت پارت‌های برنامه (همان توابع قبلی)
 # ---------------------------------------------------------------------------
 
 def add_plan_item(chat_id: int, name: str, date: str, category: str = "درسی") -> str:
-    """یک پارت جدید اضافه می‌کند و id آن را برمی‌گرداند."""
     item_id = secrets.token_hex(12)
     conn = get_connection()
     conn.execute(
@@ -152,7 +206,6 @@ def delete_item(item_id: str):
 
 
 def update_item_full(item_id: str, status: bool = None, minutes: int = None, tests: int = None):
-    """فیلدهای دلخواه یک پارت را آپدیت می‌کند (برای ویرایش گزارش روزهای قبل)."""
     fields = []
     params = []
     if status is not None:
@@ -197,7 +250,6 @@ def save_study_data(item_id: str, minutes: int, tests: int, mark_done: bool = Tr
 
 
 def create_makeup_item(original_item: dict, tomorrow_date: str) -> str:
-    """کپی یک پارت ناقص/انجام‌نشده را برای فردا می‌سازد (مثل نسخه‌ی Notion)."""
     title = original_item["name"]
     new_title = title if "(جبرانی)" in title else f"{title} (جبرانی)"
     return add_plan_item(
@@ -206,12 +258,6 @@ def create_makeup_item(original_item: dict, tomorrow_date: str) -> str:
         date=tomorrow_date,
         category=original_item.get("category", "درسی"),
     )
-
-
-# ---------------------------------------------------------------------------
-# کش متن‌های قالب هفتگی/روزانه (هدف/Level Up/نوت/اولویت/اهداف)
-# ---------------------------------------------------------------------------
-import json
 
 
 def get_template_meta_cache(chat_id: int, scope: str, period_key: str) -> dict | None:
@@ -229,7 +275,7 @@ def get_template_meta_cache(chat_id: int, scope: str, period_key: str) -> dict |
         return None
 
 
-def save_template_meta_cache(chat_id: int, scope: str, period_key: str, data: dict):
+def save_template_meta_cache(chat_id: int, scope: str, period_key: str,  dict):
     conn = get_connection()
     conn.execute(
         """
@@ -241,4 +287,4 @@ def save_template_meta_cache(chat_id: int, scope: str, period_key: str, data: di
         (chat_id, scope, period_key, json.dumps(data, ensure_ascii=False), datetime.utcnow().isoformat()),
     )
     conn.commit()
-    conn.close()
+    
