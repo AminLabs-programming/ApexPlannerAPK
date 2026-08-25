@@ -96,15 +96,11 @@ async function submitAuthForm() {
       result = await Api.login(username, password);
     } else {
       const displayName = document.getElementById('authDisplayName').value.trim();
-      const inviteCode = document.getElementById('authInviteCode')?.value.trim() || '';
       if (!displayName) { renderAuthForm('اسمت رو وارد کن'); btn.disabled = false; return; }
-      if (!inviteCode) { renderAuthForm('کد دعوت رو وارد کن'); btn.disabled = false; return; }
-      // chat_id را از Telegram WebApp می‌گیریم یا یک ID تصادفی می‌سازیم
-      const chatId = window.Telegram?.WebApp?.initData?.user?.id || Math.floor(Math.random() * 1000000);
-      result = await Api.register(chatId, inviteCode, displayName);
+      result = await Api.register(username, password, displayName);
     }
-    Api.setToken(result.access_token || 'dummy-token');
-    Api.setCachedUser(result.user || { display_name: displayName });
+    Api.setToken(result.access_token);
+    Api.setCachedUser(result.user);
     await bootAfterLogin();
   } catch (e) {
     renderAuthForm(e.message || 'خطایی پیش اومد');
