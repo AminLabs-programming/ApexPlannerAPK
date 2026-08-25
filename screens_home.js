@@ -134,13 +134,15 @@ function renderPlanItemRow(item) {
     </div>`;
 }
 
-function onTogglePlanItem(id) {
+async function onTogglePlanItem(id) {
   const item = getItemById(id);
   if (!item) return;
   if (!item.status && item.category === 'درسی') {
     openStudyLogSheet(id);
   } else {
-    markItemDone(id, !item.status);
-    rerender();
+    try {
+      await markItemDone(id, !item.status);
+      rerender();
+    } catch (e) { /* توست خطا داخل markItemDone نمایش داده می‌شه */ }
   }
 }

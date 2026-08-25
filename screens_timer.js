@@ -76,6 +76,11 @@ SCREENS.timer = function (root) {
       </div>
     </div>
 
+    <button class="btn btn-ghost" style="margin-top:14px;" onclick="openManualStudyLogSheet()">
+      <span class="material-symbols-rounded" style="font-size:19px;">edit_calendar</span>
+      ثبت دستی مطالعه (بدون تایمر)
+    </button>
+
     <div class="section-head"><h3>یادآورها و آلارم‌ها</h3><span class="more" onclick="openAlarmsSheet()">مدیریت ›</span></div>
     <div id="alarmSummary"></div>
 
@@ -184,8 +189,6 @@ function finishTimerSession(auto) {
   TimerState.running = false;
   if (minutes >= 1) {
     DB.sessions.push({ id: uid(), date: Jalali.todayStr(), subject: TimerState.subject || 'مطالعه آزاد', minutes, mode: TimerState.mode });
-    DB.streakDone[Jalali.todayStr()] = true;
-    saveDB();
     if (!auto) showToast(`${formatMinutes(minutes)} ثبت شد`);
   }
   TimerState.remainingSeconds = TimerState.mode === 'stopwatch' ? 0 : TimerState.totalSeconds;
@@ -252,26 +255,37 @@ function openNewAlarmForm() {
     <button class="btn btn-primary" onclick="submitNewAlarm()">ذخیره آلارم</button>
   `);
 }
-function submitNewAlarm() {
+async function submitNewAlarm() {
   const label = document.getElementById('aLabel').value.trim() || 'یادآوری مطالعه';
   const time = document.getElementById('aTime').value || '08:00';
   const days = Array.from(document.querySelectorAll('#aDays .chip.on')).map(b => parseInt(b.dataset.d));
-  DB.alarms.push({ id: uid(), label, time, days, enabled: true });
-  saveDB();
-  showToast('آلارم اضافه شد');
-  renderAlarmsSheetBody();
-  if (currentScreen === 'timer') rerender();
+  try {
+    await apiAddAlarm({ label, time, days, enabled: true });
+    showToast('آلارم اضافه شد');
+    renderAlarmsSheetBody();
+    if (currentScreen === 'timer') rerender();
+  } catch (e) {
+    showToast('خطا: ' + e.message, 'error');
+  }
 }
-function toggleAlarm(id) {
+async function toggleAlarm(id) {
   const a = DB.alarms.find(x => x.id === id); if (!a) return;
-  a.enabled = !a.enabled; saveDB();
-  fillAlarmList();
-  if (currentScreen === 'timer') rerender();
+  try {
+    await apiUpdateAlarm(id, { label: a.label, time: a.time, days: a.days, enabled: !a.enabled });
+    fillAlarmList();
+    if (currentScreen === 'timer') rerender();
+  } catch (e) {
+    showToast('خطا: ' + e.message, 'error');
+  }
 }
-function deleteAlarm(id) {
-  DB.alarms = DB.alarms.filter(x => x.id !== id); saveDB();
-  fillAlarmList();
-  if (currentScreen === 'timer') rerender();
+async function deleteAlarm(id) {
+  try {
+    await apiDeleteAlarm(id);
+    fillAlarmList();
+    if (currentScreen === 'timer') rerender();
+  } catch (e) {
+    showToast('خطا: ' + e.message, 'error');
+  }
 }
 
 // check alarms once a minute against system clock
@@ -299,3 +313,73 @@ function checkAlarmsLoop() {
 }
 
 Object.defineProperty(window, 'TimerState', { get() { return TimerState; }, configurable: true });
+
+// ---------------------------------------------------------------------------
+// ثبت دستی مطالعه — برای وقتی که با کرنومتر شخصی/خارج از اپ خوندی و فقط
+// می‌خوای دقیقه و تعداد تست رو ثبت کنی، بدون اینکه تایمر داخل اپ رو زده باشی.
+// دو حالت داره: وصل‌کردن به یه پارت برنامه‌ی موجود، یا ساخت یه پارت جدید و
+// تکمیل فوری‌ش در همون لحظه.
+// ---------------------------------------------------------------------------
+function openManualStudyLogSheet() {
+  const today = Jalali.todayStr();
+  // پارت‌های درسیِ چند روز اخیر که هنوز تکمیل نشدن، برای انتخاب راحت‌تر
+  const recentOpenItems = DB.planItems
+    .filter(i => i.category === 'درسی' && !i.status && i.date >= Jalali.addDays(today, -7) && i.date <= today)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  openSheet(`
+    <h2>ثبت دستی مطالعه</h2>
+    <p style="font-size:12.5px; color:var(--text-2); margin-top:-10px; margin-bottom:16px;">
+      اگه با کرنومتر خودت یا خارج از اپ خوندی، همینجا ثبتش کن.
+    </p>
+
+    ${recentOpenItems.length ? `
+    <div class="field">
+      <label>یه پارت موجود رو انتخاب کن (اختیاری)</label>
+      <select id="manualExistingItem" onchange="onManualExistingItemChange()">
+        <option value="">— پارت جدید بساز —</option>
+        ${recentOpenItems.map(i => `<option value="${i.id}">${escapeHtml(i.name)} (${Jalali.gregorianStrToJalaliStr(i.date)})</option>`).join('')}
+      </select>
+    </div>` : ''}
+
+    <div id="manualNewItemFields">
+      <div class="field"><label>نام درس/پارت</label><input id="manualSubjectName" type="text" placeholder="مثلاً فیزیک فصل ۳" /></div>
+      <div class="field"><label>تاریخ</label><input id="manualDate" type="date" value="${today}" /></div>
+    </div>
+
+    <div class="field"><label>دقیقه مطالعه</label><input id="manualMinutes" type="number" min="0" placeholder="مثلاً ۶۰" /></div>
+    <div class="field"><label>تعداد تست</label><input id="manualTests" type="number" min="0" placeholder="مثلاً ۱۵" /></div>
+
+    <button class="btn btn-primary" onclick="submitManualStudyLog()">ثبت و تکمیل ✅</button>
+  `);
+}
+
+function onManualExistingItemChange() {
+  const sel = document.getElementById('manualExistingItem');
+  const newFields = document.getElementById('manualNewItemFields');
+  newFields.style.display = sel.value ? 'none' : 'block';
+}
+
+async function submitManualStudyLog() {
+  const minutes = parseInt(document.getElementById('manualMinutes').value) || 0;
+  const tests = parseInt(document.getElementById('manualTests').value) || 0;
+  if (minutes <= 0 && tests <= 0) { showToast('حداقل دقیقه یا تعداد تست رو وارد کن'); return; }
+
+  const existingSel = document.getElementById('manualExistingItem');
+  const existingId = existingSel ? existingSel.value : '';
+
+  try {
+    if (existingId) {
+      await saveStudyData(existingId, minutes, tests, true);
+    } else {
+      const name = document.getElementById('manualSubjectName').value.trim();
+      const date = document.getElementById('manualDate').value || Jalali.todayStr();
+      if (!name) { showToast('نام درس رو وارد کن'); return; }
+      const created = await addPlanItem({ name, date, category: 'درسی' });
+      await saveStudyData(created.id, minutes, tests, true);
+    }
+    closeSheet();
+    showToast('ثبت شد 🎉');
+    rerender();
+  } catch (e) { /* توست خطا داخل saveStudyData/addPlanItem نمایش داده می‌شه */ }
+}

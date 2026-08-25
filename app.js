@@ -172,62 +172,99 @@ function formatMinutes(total) {
 function fa(n) { return Jalali.toFaNum(n); }
 
 // ---------------------------------------------------------------------------
-// Storage layer (persistent, personal — key-value via window.storage)
+// Storage layer (persistent, per-account — از طریق API بکند، نه window.storage)
 // ---------------------------------------------------------------------------
-const DB_KEY = 'apex:data:v1';
-let DB = null; // in-memory cache of the whole app state, synced to storage
+let DB = null; // کش محلی از دیتای کاربر لاگین‌شده؛ از بکند پر می‌شه و باهاش سینک می‌مونه
 
 function uid() { return 'x' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
 
 function defaultDB() {
   return {
-    profile: { name: 'دانش‌آموز', goalHoursPerDay: 5, examTargetLabel: '', createdAt: Jalali.todayStr() },
+    profile: { name: 'دانش‌آموز', goalHoursPerDay: 5, examTargetLabel: '', role: 'member', userId: null },
     planItems: [],      // {id,name,date,category,status,studyMinutes,testCount,timeLabel,notes}
     questions: [],       // {id,text,options:[{text,correct}],subject,topic,difficulty,createdAt}
-    exams: [],            // {id,name,date,subjects:[{name,correct,wrong,unanswered,total,percent}]}
-    alarms: [],           // {id,label,time:'HH:MM',days:[0..6],enabled,sound}
-    sessions: [],          // completed study sessions {id,date,subject,minutes,mode}
-    streakDone: {},         // {'YYYY-MM-DD': true}
-    dailyMeta: {}             // {'YYYY-MM-DD': {priorities:[],goals:''}}
+    exams: [],            // {id,name,date,subjects:[{name,percent}]}
+    alarms: [],           // {id,label,time:'HH:MM',days:[0..6],enabled}
+    sessions: [],          // completed study sessions {id,date,subject,minutes,mode} — فقط محلی (تایمر)
   };
 }
 
-async function loadDB() {
-  try {
-    const res = await window.storage.get(DB_KEY, false);
-    DB = res && res.value ? JSON.parse(res.value) : defaultDB();
-  } catch (e) {
-    DB = defaultDB();
-  }
-  // migrate missing fields
-  const d = defaultDB();
-  for (const k in d) if (!(k in DB)) DB[k] = d[k];
+// ---- تبدیل شکل داده‌ی API (snake_case) به شکل داخلی اپ (camelCase) ----
+function planItemFromApi(i) {
+  return {
+    id: i.id, name: i.name, date: i.date, category: i.category, status: i.status,
+    studyMinutes: i.study_minutes, testCount: i.test_count, timeLabel: i.time_label || '', notes: i.notes || '',
+  };
+}
+function planItemToApiCreate(i) {
+  return { name: i.name, date: i.date, category: i.category, time_label: i.timeLabel || '' };
+}
+function planItemToApiUpdate(patch) {
+  const out = {};
+  if ('name' in patch) out.name = patch.name;
+  if ('date' in patch) out.date = patch.date;
+  if ('category' in patch) out.category = patch.category;
+  if ('status' in patch) out.status = patch.status;
+  if ('studyMinutes' in patch) out.study_minutes = patch.studyMinutes;
+  if ('testCount' in patch) out.test_count = patch.testCount;
+  if ('timeLabel' in patch) out.time_label = patch.timeLabel;
+  if ('notes' in patch) out.notes = patch.notes;
+  return out;
+}
+function questionFromApi(q) {
+  return { id: q.id, text: q.text, options: q.options || [], subject: q.subject || '', topic: q.topic || '', difficulty: q.difficulty || 'mid', createdAt: q.created_at };
+}
+function examFromApi(e) {
+  return { id: e.id, name: e.name, date: e.date, subjects: e.subjects || [] };
+}
+function alarmFromApi(a) {
+  return { id: a.id, label: a.label, time: a.time, days: a.days || [], enabled: a.enabled };
+}
+
+// بارگذاری کامل دیتا از بکند بعد از لاگین موفق
+async function syncFromServer() {
+  const [me, items, questions, exams, alarms] = await Promise.all([
+    Api.me(),
+    Api.listPlanItems(),
+    Api.listQuestions(),
+    Api.listExams(),
+    Api.listAlarms(),
+  ]);
+  DB = defaultDB();
+  DB.profile = {
+    name: me.display_name, goalHoursPerDay: me.goal_hours_per_day,
+    examTargetLabel: me.exam_target_label || '', role: me.role, userId: me.id,
+  };
+  DB.planItems = items.map(planItemFromApi);
+  DB.questions = questions.map(questionFromApi);
+  DB.exams = exams.map(examFromApi);
+  DB.alarms = alarms.map(alarmFromApi);
+  Api.setCachedUser(me);
   return DB;
 }
 
-let saveTimer = null;
-function saveDB() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    try { await window.storage.set(DB_KEY, JSON.stringify(DB), false); }
-    catch (e) { console.error('save failed', e); }
-  }, 250);
-}
-
 // ---------------------------------------------------------------------------
-// Plan item helpers (mirrors bot.py local_db logic)
+// Plan item helpers — بهینه‌گرا (optimistic): اول کش محلی آپدیت می‌شه که UI
+// فوری واکنش نشون بده، بعد درخواست به سرور می‌ره؛ اگه سرور خطا داد، تغییر
+// برمی‌گرده و پیام خطا نشون داده می‌شه.
 // ---------------------------------------------------------------------------
 const CATEGORIES = ['درسی', 'توسعه فردی', 'غیردرسی'];
 
-function addPlanItem({ name, date, category, timeLabel }) {
-  const item = {
-    id: uid(), name, date, category: category || 'درسی',
-    status: false, studyMinutes: 0, testCount: 0,
-    timeLabel: timeLabel || '', notes: ''
-  };
-  DB.planItems.push(item);
-  saveDB();
-  return item;
+async function addPlanItem({ name, date, category, timeLabel }) {
+  const tempId = uid();
+  const optimistic = { id: tempId, name, date, category: category || 'درسی', status: false, studyMinutes: 0, testCount: 0, timeLabel: timeLabel || '', notes: '' };
+  DB.planItems.push(optimistic);
+  try {
+    const created = await Api.createPlanItem(planItemToApiCreate(optimistic));
+    const real = planItemFromApi(created);
+    const idx = DB.planItems.findIndex(i => i.id === tempId);
+    if (idx >= 0) DB.planItems[idx] = real;
+    return real;
+  } catch (e) {
+    DB.planItems = DB.planItems.filter(i => i.id !== tempId);
+    showToast('خطا در افزودن برنامه: ' + e.message, 'error');
+    throw e;
+  }
 }
 function getItemsForDate(dateStr) {
   return DB.planItems.filter(i => i.date === dateStr);
@@ -236,42 +273,121 @@ function getItemsBetween(start, end) {
   return DB.planItems.filter(i => i.date >= start && i.date <= end);
 }
 function getItemById(id) { return DB.planItems.find(i => i.id === id); }
-function deleteItem(id) {
+
+async function deleteItem(id) {
+  const backup = DB.planItems.find(i => i.id === id);
   DB.planItems = DB.planItems.filter(i => i.id !== id);
-  saveDB();
+  try {
+    await Api.deletePlanItem(id);
+  } catch (e) {
+    if (backup) DB.planItems.push(backup);
+    showToast('خطا در حذف: ' + e.message, 'error');
+    throw e;
+  }
 }
-function markItemDone(id, done) {
-  const it = getItemById(id); if (!it) return;
-  it.status = done;
-  saveDB();
+async function updatePlanItemRemote(id, patch) {
+  const item = getItemById(id);
+  if (!item) return;
+  const backup = { ...item };
+  Object.assign(item, patch);
+  try {
+    const updated = await Api.updatePlanItem(id, planItemToApiUpdate(patch));
+    Object.assign(item, planItemFromApi(updated));
+  } catch (e) {
+    Object.assign(item, backup);
+    showToast('خطا در ذخیره: ' + e.message, 'error');
+    throw e;
+  }
 }
-function saveStudyData(id, minutes, tests, markDone = true) {
-  const it = getItemById(id); if (!it) return;
-  it.studyMinutes = minutes; it.testCount = tests;
-  if (markDone) it.status = true;
-  saveDB();
+async function markItemDone(id, done) {
+  return updatePlanItemRemote(id, { status: done });
 }
-function createMakeupItem(original, dateStr) {
+async function saveStudyData(id, minutes, tests, markDone = true) {
+  return updatePlanItemRemote(id, { studyMinutes: minutes, testCount: tests, status: markDone ? true : getItemById(id)?.status });
+}
+async function createMakeupItem(original, dateStr) {
   const title = original.name.includes('(جبرانی)') ? original.name : `${original.name} (جبرانی)`;
   return addPlanItem({ name: title, date: dateStr, category: original.category });
 }
 // carry over unfinished items from a date to the next day, tagging as makeup — run lazily
-function runCarryOverIfNeeded() {
+async function runCarryOverIfNeeded() {
   const today = Jalali.todayStr();
   const lastRun = localStorage.getItem('apex_carry_last') || '';
   if (lastRun === today) return;
   const yesterday = Jalali.addDays(today, -1);
   const items = getItemsForDate(yesterday);
   let count = 0;
-  items.forEach(it => {
+  for (const it of items) {
     if (!it.status) {
-      // avoid duplicating if a makeup already exists for today with same base name
       const already = getItemsForDate(today).some(x => x.name === (it.name.includes('(جبرانی)') ? it.name : it.name + ' (جبرانی)'));
-      if (!already) { createMakeupItem(it, today); count++; }
+      if (!already) { await createMakeupItem(it, today); count++; }
     }
-  });
+  }
   localStorage.setItem('apex_carry_last', today);
   if (count > 0) { setTimeout(() => showToast(`${fa(count)} پارت مونده دیروز، برای امروز منتقل شد`), 800); }
+}
+
+// ---------------------------------------------------------------------------
+// Questions — optimistic CRUD
+// ---------------------------------------------------------------------------
+async function apiAddQuestion(payload) {
+  const created = await Api.createQuestion(payload);
+  const q = questionFromApi(created);
+  DB.questions.unshift(q);
+  return q;
+}
+async function apiUpdateQuestion(id, payload) {
+  const updated = await Api.updateQuestion(id, payload);
+  const q = questionFromApi(updated);
+  const idx = DB.questions.findIndex(x => x.id === id);
+  if (idx >= 0) DB.questions[idx] = q;
+  return q;
+}
+async function apiDeleteQuestion(id) {
+  await Api.deleteQuestion(id);
+  DB.questions = DB.questions.filter(x => x.id !== id);
+}
+
+// ---------------------------------------------------------------------------
+// Exams — optimistic CRUD
+// ---------------------------------------------------------------------------
+async function apiAddExam(payload) {
+  const created = await Api.createExam(payload);
+  const e = examFromApi(created);
+  DB.exams.push(e);
+  return e;
+}
+async function apiUpdateExam(id, payload) {
+  const updated = await Api.updateExam(id, payload);
+  const e = examFromApi(updated);
+  const idx = DB.exams.findIndex(x => x.id === id);
+  if (idx >= 0) DB.exams[idx] = e;
+  return e;
+}
+async function apiDeleteExam(id) {
+  await Api.deleteExam(id);
+  DB.exams = DB.exams.filter(x => x.id !== id);
+}
+
+// ---------------------------------------------------------------------------
+// Alarms — optimistic CRUD
+// ---------------------------------------------------------------------------
+async function apiAddAlarm(payload) {
+  const created = await Api.createAlarm(payload);
+  const a = alarmFromApi(created);
+  DB.alarms.push(a);
+  return a;
+}
+async function apiUpdateAlarm(id, payload) {
+  const updated = await Api.updateAlarm(id, payload);
+  const a = alarmFromApi(updated);
+  const idx = DB.alarms.findIndex(x => x.id === id);
+  if (idx >= 0) DB.alarms[idx] = a;
+  return a;
+}
+async function apiDeleteAlarm(id) {
+  await Api.deleteAlarm(id);
+  DB.alarms = DB.alarms.filter(x => x.id !== id);
 }
 
 // ---------------------------------------------------------------------------
@@ -415,14 +531,30 @@ function render() {
 function rerender() { render(); }
 
 // ---------------------------------------------------------------------------
-// Boot
+// Boot — چک لاگین قبل از هر چیز
 // ---------------------------------------------------------------------------
 window.addEventListener('DOMContentLoaded', async () => {
-  await loadDB();
-  runCarryOverIfNeeded();
+  if (!Api.isLoggedIn()) {
+    showAuthScreen();
+    return;
+  }
+  await bootAfterLogin();
+});
+
+async function bootAfterLogin() {
+  try {
+    await syncFromServer();
+  } catch (e) {
+    // توکن نامعتبر/منقضی یا کاربر بن‌شده -> برگرد به صفحه‌ی لاگین
+    Api.clearToken();
+    showAuthScreen(e.message);
+    return;
+  }
+  hideAuthScreen();
+  await runCarryOverIfNeeded();
   checkAlarmsLoop();
   go('home');
-});
+}
 
 // expose module-scope bindings for debugging/testing convenience
 window.__apex = { get DB() { return DB; }, get Jalali() { return Jalali; }, get TimerState() { return typeof TimerState !== 'undefined' ? TimerState : null; } };

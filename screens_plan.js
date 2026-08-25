@@ -127,17 +127,19 @@ function wireSeg(id) {
   });
 }
 
-function submitAddPlan() {
+async function submitAddPlan() {
   const name = document.getElementById('fName').value.trim();
   const isoDate = document.getElementById('fDate').value;
   const cat = document.querySelector('#fCatSeg button.active').dataset.cat;
   const timeLabel = document.getElementById('fTime').value.trim();
   if (!name) { showToast('عنوان رو وارد کن', 'error'); return; }
   if (!isoDate) { showToast('تاریخ رو انتخاب کن', 'error'); return; }
-  addPlanItem({ name, date: isoDate, category: cat, timeLabel });
-  closeSheet();
-  showToast('پارت جدید اضافه شد');
-  rerender();
+  try {
+    await addPlanItem({ name, date: isoDate, category: cat, timeLabel });
+    closeSheet();
+    showToast('پارت جدید اضافه شد');
+    rerender();
+  } catch (e) { /* توست خطا داخل addPlanItem نمایش داده می‌شه */ }
 }
 
 function toIsoForInput(gStr) { return gStr; } // already YYYY-MM-DD
@@ -167,20 +169,24 @@ function openEditPlanSheet(id) {
   wireSeg('eCatSeg');
 }
 
-function submitEditPlan(id) {
+async function submitEditPlan(id) {
   const item = getItemById(id);
   if (!item) return;
-  item.name = document.getElementById('eName').value.trim() || item.name;
-  item.date = document.getElementById('eDate').value || item.date;
-  item.category = document.querySelector('#eCatSeg button.active').dataset.cat;
+  const patch = {
+    name: document.getElementById('eName').value.trim() || item.name,
+    date: document.getElementById('eDate').value || item.date,
+    category: document.querySelector('#eCatSeg button.active').dataset.cat,
+  };
   const mEl = document.getElementById('eMinutes');
   const tEl = document.getElementById('eTests');
-  if (mEl) item.studyMinutes = parseInt(mEl.value) || 0;
-  if (tEl) item.testCount = parseInt(tEl.value) || 0;
-  saveDB();
-  closeSheet();
-  showToast('ذخیره شد');
-  rerender();
+  if (mEl) patch.studyMinutes = parseInt(mEl.value) || 0;
+  if (tEl) patch.testCount = parseInt(tEl.value) || 0;
+  try {
+    await updatePlanItemRemote(id, patch);
+    closeSheet();
+    showToast('ذخیره شد');
+    rerender();
+  } catch (e) { /* توست خطا داخل updatePlanItemRemote نمایش داده می‌شه */ }
 }
 
 function confirmDeleteItem(id) {
@@ -188,7 +194,12 @@ function confirmDeleteItem(id) {
     icon: 'delete', title: 'حذف پارت برنامه',
     text: 'مطمئنی می‌خوای این پارت رو حذف کنی؟ این کار قابل بازگشت نیست.',
     confirmText: 'حذف کن', confirmClass: 'btn-danger-ghost',
-    onConfirm: () => { deleteItem(id); closeSheet(); showToast('حذف شد', 'delete'); rerender(); }
+    onConfirm: async () => {
+      try {
+        await deleteItem(id);
+        closeSheet(); showToast('حذف شد', 'delete'); rerender();
+      } catch (e) { closeDialog(); }
+    }
   });
 }
 
@@ -210,11 +221,13 @@ function openStudyLogSheet(id) {
     </div>
   `);
 }
-function submitStudyLog(id, markDone) {
+async function submitStudyLog(id, markDone) {
   const minutes = parseInt(document.getElementById('sMinutes').value) || 0;
   const tests = parseInt(document.getElementById('sTests').value) || 0;
-  saveStudyData(id, minutes, tests, markDone);
-  closeSheet();
-  showToast(markDone ? 'عالی بود! ثبت شد 🎉' : 'ثبت شد، بعداً ادامه بده');
-  rerender();
+  try {
+    await saveStudyData(id, minutes, tests, markDone);
+    closeSheet();
+    showToast(markDone ? 'عالی بود! ثبت شد 🎉' : 'ثبت شد، بعداً ادامه بده');
+    rerender();
+  } catch (e) { /* توست خطا داخل saveStudyData نمایش داده می‌شه */ }
 }

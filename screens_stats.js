@@ -199,7 +199,7 @@ function addExamSubjectRow() {
   wrap.insertAdjacentHTML('beforeend', examSubjectRow({name:SUBJECTS[0],percent:0}, idx));
 }
 function wireExamForm() {}
-function submitExam(existingId) {
+async function submitExam(existingId) {
   const name = document.getElementById('exName').value.trim();
   const date = document.getElementById('exDate').value;
   if (!name || !date) { showToast('نام و تاریخ آزمون رو پر کن'); return; }
@@ -208,16 +208,18 @@ function submitExam(existingId) {
     name: r.querySelector('[data-ex-subject]').value,
     percent: Math.max(0, Math.min(100, parseInt(r.querySelector('[data-ex-percent]').value) || 0))
   }));
-  if (existingId) {
-    const ex = DB.exams.find(x => x.id === existingId);
-    Object.assign(ex, { name, date, subjects });
-  } else {
-    DB.exams.push({ id: uid(), name, date, subjects });
+  try {
+    if (existingId) {
+      await apiUpdateExam(existingId, { name, date, subjects });
+    } else {
+      await apiAddExam({ name, date, subjects });
+    }
+    closeSheet();
+    showToast(existingId ? 'ذخیره شد' : 'آزمون ثبت شد');
+    rerender();
+  } catch (e) {
+    showToast('خطا: ' + e.message, 'error');
   }
-  saveDB();
-  closeSheet();
-  showToast(existingId ? 'ذخیره شد' : 'آزمون ثبت شد');
-  rerender();
 }
 function openEditExamSheet(id) {
   const ex = DB.exams.find(x => x.id === id);
@@ -229,7 +231,15 @@ function confirmDeleteExam(id) {
   openDialog({
     icon: 'delete', title: 'حذف آزمون', text: 'اطلاعات این آزمون برای همیشه حذف می‌شه.',
     confirmText: 'حذف کن', confirmClass: 'btn-danger-ghost',
-    onConfirm: () => { DB.exams = DB.exams.filter(x => x.id !== id); saveDB(); closeDialog(); showToast('حذف شد'); rerender(); }
+    onConfirm: async () => {
+      try {
+        await apiDeleteExam(id);
+        closeDialog(); showToast('حذف شد'); rerender();
+      } catch (e) {
+        showToast('خطا: ' + e.message, 'error');
+        closeDialog();
+      }
+    }
   });
 }
 

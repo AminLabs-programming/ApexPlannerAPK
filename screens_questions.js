@@ -110,7 +110,7 @@ function questionFormHtml(existing) {
 }
 function wireQuestionForm() { wireSeg('qDiffSeg'); }
 
-function submitQuestion(existingId) {
+async function submitQuestion(existingId) {
   const text = document.getElementById('qText').value.trim();
   if (!text) { showToast('متن سوال خالیه'); return; }
   const subject = document.getElementById('qSubject').value;
@@ -122,16 +122,18 @@ function submitQuestion(existingId) {
     correct: document.querySelector(`[data-opt-correct="${i}"]`).checked
   })).filter(o => o.text);
 
-  if (existingId) {
-    const q = DB.questions.find(x => x.id === existingId);
-    Object.assign(q, { text, subject, topic, difficulty, options });
-  } else {
-    DB.questions.push({ id: uid(), text, subject, topic, difficulty, options, createdAt: new Date().toISOString() });
+  try {
+    if (existingId) {
+      await apiUpdateQuestion(existingId, { text, subject, topic, difficulty, options });
+    } else {
+      await apiAddQuestion({ text, subject, topic, difficulty, options });
+    }
+    closeSheet();
+    showToast(existingId ? 'ذخیره شد' : 'سوال اضافه شد');
+    rerender();
+  } catch (e) {
+    showToast('خطا: ' + e.message, 'error');
   }
-  saveDB();
-  closeSheet();
-  showToast(existingId ? 'ذخیره شد' : 'سوال اضافه شد');
-  rerender();
 }
 
 function openEditQuestionSheet(id) {
@@ -145,9 +147,14 @@ function confirmDeleteQuestion(id) {
   openDialog({
     icon: 'delete', title: 'حذف سوال', text: 'این سوال برای همیشه حذف می‌شه.',
     confirmText: 'حذف کن', confirmClass: 'btn-danger-ghost',
-    onConfirm: () => {
-      DB.questions = DB.questions.filter(x => x.id !== id);
-      saveDB(); closeDialog(); showToast('حذف شد'); rerender();
+    onConfirm: async () => {
+      try {
+        await apiDeleteQuestion(id);
+        closeDialog(); showToast('حذف شد'); rerender();
+      } catch (e) {
+        showToast('خطا: ' + e.message, 'error');
+        closeDialog();
+      }
     }
   });
 }
