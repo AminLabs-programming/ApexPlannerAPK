@@ -80,8 +80,8 @@ const Api = (() => {
     isLoggedIn: () => !!getToken(),
 
     // ---- auth ----
-    register: (username, password, display_name) =>
-      request("POST", "/auth/register", { json: { username, password, display_name }, auth: false }),
+    register: (chat_id, invite_code, name) =>
+      request("POST", "/api/register", { json: { chat_id, invite_code, name }, auth: false }),
     login: (username, password) =>
       request("POST", "/auth/login", { json: { username, password }, auth: false }),
     me: () => request("GET", "/auth/me"),

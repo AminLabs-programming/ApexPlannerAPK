@@ -648,6 +648,37 @@ def get_data():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/register", methods=["POST"])
+def register_user():
+    """ثبت‌نام کاربر جدید در دیتابیس محلی"""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    chat_id = data.get("chat_id")
+    invite_code = data.get("invite_code")
+    name = data.get("name", "کاربر")
+    
+    if not chat_id or not invite_code:
+        return jsonify({"error": "chat_id and invite_code are required"}), 400
+    
+    # بررسی کد دعوت
+    if invite_code != INVITE_CODE:
+        return jsonify({"error": "Invalid invite code"}), 403
+    
+    # بررسی تکراری نبودن کاربر
+    if local_db.is_registered(int(chat_id)):
+        return jsonify({"error": "User already registered"}), 409
+    
+    # ثبت کاربر
+    try:
+        local_db.register_user(int(chat_id), name)
+        return jsonify({"success": True, "message": "Registration successful"}), 200
+    except Exception as e:
+        logger.error("Error registering user: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     # اجرای بات در ترد جداگانه
     bot_thread = threading.Thread(target=run_bot, daemon=True)
