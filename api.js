@@ -118,6 +118,10 @@ const Api = (() => {
     adminListMembers: () => request("GET", "/admin/members"),
     adminSetBan: (userId, banned) => request("POST", `/admin/members/${userId}/ban`, { json: { banned } }),
     adminDeleteMember: (userId) => request("DELETE", `/admin/members/${userId}`),
+
+    // ---- admin: notion sync ----
+    adminNotionStatus: () => request("GET", "/admin/notion/status"),
+    adminNotionSync: (date) => request("POST", "/admin/notion/sync", { json: { date: date || null } }),
   };
 })();
 

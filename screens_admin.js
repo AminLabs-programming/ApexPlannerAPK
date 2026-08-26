@@ -5,6 +5,9 @@
    ========================================================================= */
 let adminMembers = null;
 let adminLoading = false;
+let adminNotionStatus = null;
+let adminNotionSyncing = false;
+let adminNotionLastResult = null;
 
 SCREENS.admin = function (root) {
   if (DB.profile.role !== 'admin') {
@@ -18,8 +21,20 @@ SCREENS.admin = function (root) {
       <h1 class="page-title" style="margin:0;">پنل ادمین</h1>
     </div>
     <p class="page-sub">مدیریت اعضای گروه</p>
+
+    <div class="card" style="margin-top:14px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="material-symbols-rounded" style="color:var(--primary-bright);">sync</span>
+        <div style="font-weight:800; font-size:14.5px;">همگام‌سازی از Notion</div>
+      </div>
+      <div id="adminNotionBody" style="margin-top:10px;"></div>
+    </div>
+
     <div id="adminMembersList"></div>
   `;
+
+  renderAdminNotionSection();
+  loadAdminNotionStatus().then(() => { if (currentScreen === 'admin') renderAdminNotionSection(); });
 
   const listEl = root.querySelector('#adminMembersList');
   if (adminLoading) {
@@ -32,6 +47,68 @@ SCREENS.admin = function (root) {
 
   if (adminMembers) renderAdminMembersListInto(listEl);
 };
+
+async function loadAdminNotionStatus() {
+  try {
+    adminNotionStatus = await Api.adminNotionStatus();
+  } catch (e) {
+    adminNotionStatus = { configured: false, database_id_set: false };
+  }
+}
+
+function renderAdminNotionSection() {
+  const el = document.getElementById('adminNotionBody');
+  if (!el) return;
+
+  if (!adminNotionStatus) {
+    el.innerHTML = `<p style="font-size:12.5px; color:var(--text-3);">در حال بررسی تنظیمات...</p>`;
+    return;
+  }
+
+  if (!adminNotionStatus.configured) {
+    el.innerHTML = `
+      <p style="font-size:12.5px; color:var(--text-3); line-height:1.9;">
+        هنوز به Notion وصل نشدی. توی تنظیمات سرویس بکند روی Railway، دو متغیر
+        <code>NOTION_API_KEY</code> و <code>NOTION_DATABASE_ID</code> رو ست کن
+        (همون‌هایی که بات تلگرام استفاده می‌کنه)، بعد سرویس رو ری‌استارت کن.
+      </p>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <p style="font-size:12.5px; color:var(--text-3); line-height:1.9;">
+      برنامه‌های ثبت‌شده توی دیتابیس Notion رو می‌کشه و به برنامه‌ی خودت (ادمین) توی اپ اضافه/آپدیت می‌کنه.
+      آیتم‌هایی که قبلاً سینک شدن دوباره تکراری نمی‌شن.
+    </p>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn-sm btn-primary" style="flex:1;" ${adminNotionSyncing ? 'disabled' : ''} onclick="runAdminNotionSync()">
+        ${adminNotionSyncing ? 'در حال همگام‌سازی...' : 'همگام‌سازی الان'}
+      </button>
+    </div>
+    ${adminNotionLastResult ? `
+      <div style="margin-top:10px; font-size:12px; color:var(--text-2);">
+        ${fa(adminNotionLastResult.created)} آیتم جدید اضافه شد ·
+        ${fa(adminNotionLastResult.updated)} آیتم آپدیت شد ·
+        از ${fa(adminNotionLastResult.total_from_notion)} آیتم Notion
+      </div>` : ''}
+  `;
+}
+
+async function runAdminNotionSync() {
+  adminNotionSyncing = true;
+  renderAdminNotionSection();
+  try {
+    adminNotionLastResult = await Api.adminNotionSync();
+    showToast('همگام‌سازی با Notion انجام شد');
+    // آیتم‌های تازه از Notion اومدن؛ دیتای محلی اپ رو دوباره از سرور می‌کشیم
+    // تا صفحه‌ی برنامه/خانه/آمار همون لحظه به‌روز باشن.
+    await syncFromServer();
+  } catch (e) {
+    showToast('خطا در همگام‌سازی: ' + e.message, 'error');
+  }
+  adminNotionSyncing = false;
+  renderAdminNotionSection();
+}
 
 async function loadAdminMembers() {
   adminLoading = true;
