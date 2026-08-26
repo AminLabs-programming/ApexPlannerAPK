@@ -14,7 +14,7 @@
       اینجا جای مقدار زیر بذار.
    ========================================================================= */
 const APEX_CONFIG = {
-  BACKEND_URL: "https://apexplannerbackend-production.up.railway.app",
+  BACKEND_URL: "https://PUT-YOUR-BACKEND-SERVICE-DOMAIN-HERE.up.railway.app",
 };
 if (typeof window !== 'undefined') {
   window.APEX_CONFIG = APEX_CONFIG;
