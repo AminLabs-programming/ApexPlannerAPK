@@ -1,316 +1,254 @@
-/* =========================================================================
-   صفحه پنل ادمین (شامل مدیریت اعضا، ناتیون و ریستور پوینت‌ها)
-   ========================================================================= */
+import { escapeHtml, fa, formatMinutes, emptyState, openDialog, closeDialog, showToast } from '../utils/helpers.js';
+import { Api } from '../services/api.js';
 
 let adminMembers = null;
 let adminLoading = false;
 let restorePoints = null;
-let restorePointsLoading = false;
+let restoreLoading = false;
 
-async function renderAdminScreen(root) {
-  // بررسی دسترسی ادمین
-  const user = Api.getCachedUser();
-  if (!user || user.role !== 'admin') {
-    root.innerHTML = `
-      <div class="empty-state" style="margin-top: 50px;">
-        <span class="material-symbols-rounded" style="font-size: 48px; color: var(--text-3);">lock</span>
-        <h3 style="margin: 16px 0 8px;">دسترسی غیرمجاز</h3>
-        <p style="color: var(--text-3); font-size: 14px;">این بخش فقط مخصوص مدیران سیستم است.</p>
-        <button class="btn-primary" style="margin-top: 20px;" onclick="go('profile')">بازگشت به پروفایل</button>
-      </div>
-    `;
+export function renderAdmin(root, user) {
+  if (user.role !== 'admin') {
+    root.innerHTML = emptyState('lock', 'دسترسی نداری', 'این بخش فقط مخصوص ادمین کل سیستم است.');
     return;
   }
 
-  // ساختار اصلی صفحه
   root.innerHTML = `
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
-      <button class="icon-btn" onclick="go('profile')" aria-label="بازگشت">
-        <span class="material-symbols-rounded">arrow_forward</span>
-      </button>
-      <h1 class="page-title" style="margin:0;">پنل مدیریت</h1>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:15px;">
+      <button class="icon-btn" onclick="window.navigate('profile')"><span class="material-symbols-rounded">arrow_back</span></button>
+      <h1 class="page-title" style="margin:0;">پنل مدیریت کل</h1>
     </div>
 
     <!-- بخش ابزارهای سیستمی (ناتیون و ریستور) -->
-    <div class="card" style="margin-bottom: 20px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1)); border: 1px solid rgba(59, 130, 246, 0.2);">
-      <h3 style="margin: 0 0 12px 0; font-size: 16px; display: flex; align-items: center; gap: 8px;">
-        <span class="material-symbols-rounded" style="color: var(--primary);">settings_input_component</span>
-        ابزارهای سیستمی
-      </h3>
-      
-      <!-- بخش ناتیون -->
-      <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <span style="font-weight: 600; font-size: 14px;">همگام‌سازی با Notion</span>
-          <span class="chip" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-size: 10px;">Beta</span>
-        </div>
-        <p style="font-size: 12px; color: var(--text-3); margin: 0 0 10px 0;">دریافت برنامه‌ها از دیتابیس ناتیون بات تلگرام</p>
-        <button id="btnSyncNotion" class="btn-primary" style="width: 100%; font-size: 13px; padding: 10px;" onclick="handleSyncNotion()">
-          <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-left: 4px;">sync</span>
-          شروع همگام‌سازی
+    <div class="card" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1)); border: 1px solid rgba(99, 102, 241, 0.2); margin-bottom: 20px;">
+      <div style="font-weight:800; font-size:14px; margin-bottom:10px; color: var(--primary);">
+        <span class="material-symbols-rounded" style="vertical-align:middle; font-size:18px;">settings_input_component</span>
+        ابزارهای پیشرفته سیستم
+      </div>
+      <div class="grid-2" style="gap:10px;">
+        <button class="btn-sm btn-primary" onclick="handleSyncNotion()" style="display:flex; align-items:center; justify-content:center; gap:6px;">
+          <span class="material-symbols-rounded">sync</span>
+          همگام‌سازی Notion
+        </button>
+        <button class="btn-sm btn-ghost" onclick="renderRestorePointsSection()" style="display:flex; align-items:center; justify-content:center; gap:6px;">
+          <span class="material-symbols-rounded">history</span>
+          نقاط بازیابی
         </button>
       </div>
-
-      <!-- بخش ریستور پوینت -->
-      <div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <span style="font-weight: 600; font-size: 14px;">نقاط بازیابی (Restore)</span>
-          <button class="icon-btn" style="width: 24px; height: 24px;" onclick="loadRestorePoints()" title="بارگذاری مجدد">
-            <span class="material-symbols-rounded" style="font-size: 18px;">refresh</span>
-          </button>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn-sm btn-ghost" style="flex: 1; border: 1px dashed var(--text-3);" onclick="showCreateRestorePointDialog()">
-            <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle;">add</span>
-            جدید
-          </button>
-          <button class="btn-sm btn-ghost" style="flex: 1;" onclick="showRestorePointsList()">
-            <span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle;">history</span>
-            لیست بکاپ‌ها
-          </button>
-        </div>
-      </div>
+      <div id="systemMessage" style="font-size:11px; margin-top:8px; color:var(--text-3); min-height:15px;"></div>
     </div>
 
     <!-- بخش مدیریت اعضا -->
-    <h3 style="margin: 0 0 12px 0; font-size: 16px;">اعضای گروه</h3>
-    <div id="adminMembersList">
-      <div class="empty-state">
-        <span class="material-symbols-rounded" style="font-size: 32px; color: var(--text-3);">hourglass_top</span>
-        <p style="margin-top: 8px; color: var(--text-3);">در حال بارگذاری...</p>
-      </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <h2 style="font-size:16px; font-weight:800; margin:0;">اعضای گروه</h2>
+      <button class="icon-btn" onclick="loadAdminMembers(true)"><span class="material-symbols-rounded">refresh</span></button>
     </div>
+    
+    <div id="adminMembersList"></div>
+    
+    <!-- کانتینر مخفی برای نمایش نقاط بازیابی -->
+    <div id="restorePointsContainer" style="display:none; margin-top:20px;"></div>
   `;
 
-  // بارگذاری داده‌ها
   loadAdminMembers();
 }
 
-// --- توابع مربوط به اعضا ---
+async function handleSyncNotion() {
+  const msgEl = document.getElementById('systemMessage');
+  if (!msgEl) return;
+  
+  msgEl.innerHTML = '<span class="material-symbols-rounded" style="vertical-align:middle; animation:spin 1s linear infinite;">sync</span> در حال ارتباط با ناتیون...';
+  msgEl.style.color = 'var(--warning)';
+  
+  try {
+    await Api.syncNotion();
+    msgEl.innerHTML = '<span class="material-symbols-rounded" style="vertical-align:middle; color:var(--success)">check_circle</span> همگام‌سازی با موفقیت انجام شد.';
+    msgEl.style.color = 'var(--success)';
+    showToast('برنامه‌ها از ناتیون دریافت شدند', 'success');
+  } catch (e) {
+    msgEl.innerHTML = `<span class="material-symbols-rounded" style="vertical-align:middle; color:var(--danger)">error</span> خطا: ${e.message}`;
+    msgEl.style.color = 'var(--danger)';
+    showToast('خطا در همگام‌سازی: ' + e.message, 'error');
+  }
+}
 
-async function loadAdminMembers() {
+async function loadAdminMembers(force = false) {
+  if (adminLoading && !force) return;
   adminLoading = true;
   const listEl = document.getElementById('adminMembersList');
-  if (!listEl) return;
-  
-  // نمایش لودینگ فقط اگر لیست خالی است
-  if (!adminMembers) {
-    listEl.innerHTML = `<div class="empty-state"><span class="material-symbols-rounded" style="font-size: 32px; color: var(--text-3);">hourglass_top</span><p style="margin-top: 8px; color: var(--text-3);">در حال بارگذاری...</p></div>`;
+  if (listEl && !force) {
+     listEl.innerHTML = `<div class="empty"><span class="material-symbols-rounded">hourglass_top</span><p>در حال بروزرسانی...</p></div>`;
   }
-
+  
   try {
     adminMembers = await Api.adminListMembers();
-    renderAdminMembersListInto(listEl);
+    renderAdminMembersList();
   } catch (e) {
-    showToast('خطا در دریافت لیست اعضا: ' + e.message, 'error');
+    showToast('خطا در بارگذاری اعضا: ' + e.message, 'error');
     adminMembers = [];
-    renderAdminMembersListInto(listEl);
+    renderAdminMembersList();
   } finally {
     adminLoading = false;
   }
 }
 
-function renderAdminMembersListInto(listEl) {
+function renderAdminMembersList() {
+  const listEl = document.getElementById('adminMembersList');
   if (!listEl) return;
 
   if (!adminMembers || adminMembers.length === 0) {
-    listEl.innerHTML = `<div class="empty-state"><span class="material-symbols-rounded" style="font-size: 32px; color: var(--text-3);">group_off</span><p style="margin-top: 8px; color: var(--text-3);">عضوی یافت نشد</p></div>`;
+    listEl.innerHTML = emptyState('group', 'عضوی یافت نشد', '');
     return;
   }
 
   listEl.innerHTML = adminMembers.map(m => `
-    <div class="card" style="margin-top:12px; ${m.is_banned ? 'opacity:.6; border-color: rgba(239, 68, 68, 0.3);' : ''}">
+    <div class="card" style="margin-top:12px; ${m.is_banned ? 'opacity:.6; border-color: var(--danger);' : ''}">
       <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-        <div style="flex: 1;">
-          <div style="font-weight:800; font-size:14.5px; display:flex; align-items:center; gap:6px; flex-wrap: wrap;">
+        <div>
+          <div style="font-weight:800; font-size:14.5px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             ${escapeHtml(m.display_name)}
-            ${m.role === 'admin' ? '<span class="chip" style="background:rgba(251,191,36,.15); color:var(--gold); font-size: 10px;">ادمین</span>' : ''}
-            ${m.is_banned ? '<span class="chip" style="background:rgba(239,68,68,.15); color:var(--danger); font-size: 10px;">مسدود</span>' : ''}
+            ${m.role === 'admin' ? '<span class="chip" style="background:rgba(251,191,36,.15); color:var(--gold); font-size:10px;">ادمین</span>' : ''}
+            ${m.is_banned ? '<span class="chip" style="background:rgba(239,68,68,.15); color:var(--danger); font-size:10px;">مسدود</span>' : ''}
           </div>
-          <div style="font-size:11.5px; color:var(--text-3); margin-top:4px;">
-            @${escapeHtml(m.username || '-')} 
-            ${m.telegram_chat_id ? '· <span style="color: var(--success);">متصل به تلگرام ✓</span>' : '· <span style="color: var(--text-3);">عدم اتصال</span>'}
+          <div style="font-size:11.5px; color:var(--text-3); margin-top:2px;">
+            @${escapeHtml(m.username || 'بدون یوزرنیم')} 
+            ${m.telegram_chat_id ? '· <span style="color:var(--success)">وصل به تلگرام ✓</span>' : '· <span style="color:var(--text-3)">قطع از تلگرام</span>'}
           </div>
         </div>
       </div>
       
-      <div class="grid-2" style="margin-top:12px; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 8px;">
+      <div class="grid-2" style="margin-top:12px; background:rgba(0,0,0,0.02); padding:8px; border-radius:8px;">
         <div style="text-align:center;">
-          <div style="font-weight:800; font-size:15px; color: var(--primary);">${formatMinutes(m.total_minutes_last_7d)}</div>
+          <div style="font-weight:800; font-size:15px; color:var(--primary);">${formatMinutes(m.total_minutes_last_7d)}</div>
           <div style="font-size:10.5px; color:var(--text-3);">مطالعه (۷ روز)</div>
         </div>
         <div style="text-align:center;">
-          <div style="font-weight:800; font-size:15px; color: var(--accent);">${fa(m.total_tests_last_7d || 0)}</div>
+          <div style="font-weight:800; font-size:15px; color:var(--secondary);">${fa(m.total_tests_last_7d || 0)}</div>
           <div style="font-size:10.5px; color:var(--text-3);">تست (۷ روز)</div>
         </div>
       </div>
 
       ${m.role !== 'admin' ? `
       <div class="btn-row" style="margin-top:12px;">
-        <button class="btn-sm ${m.is_banned ? 'btn-primary' : 'btn-danger-ghost'}" style="flex:1;" onclick="toggleMemberBan(${m.id}, ${!m.is_banned})">
+        <button class="btn-sm ${m.is_banned ? 'btn-primary' : 'btn-danger-ghost'}" style="flex:1;" onclick="window.toggleMemberBan(${m.id}, ${!m.is_banned})">
           ${m.is_banned ? 'رفع مسدودیت' : 'مسدود کردن'}
         </button>
-        <button class="btn-sm btn-ghost" style="flex:1; color: var(--danger);" onclick="confirmDeleteMember(${m.id}, '${escapeHtml(m.display_name)}')">حذف کاربر</button>
+        <button class="btn-sm btn-ghost" style="flex:1; color:var(--text-3);" onclick="window.confirmDeleteMember(${m.id}, '${escapeHtml(m.display_name)}')">حذف کاربر</button>
       </div>` : ''}
     </div>
   `).join('');
 }
 
-async function toggleMemberBan(userId, banned) {
-  if (!confirm(`آیا از ${banned ? 'رفع مسدودیت' : 'مسدود کردن'} این کاربر مطمئن هستید؟`)) return;
-  try {
-    await Api.adminSetBan(userId, banned);
-    showToast(banned ? 'کاربر مسدود شد' : 'مسدودیت کاربر برداشته شد');
-    await loadAdminMembers();
-  } catch (e) {
-    showToast('خطا: ' + e.message, 'error');
-  }
-}
-
-function confirmDeleteMember(userId, name) {
-  openDialog({
-    icon: 'warning', 
-    iconColor: 'var(--danger)',
-    title: `حذف ${name}`,
-    text: '⚠️ هشدار جدی: با این کار حساب کاربری، تمام برنامه‌ریزی‌ها، سوالات و آزمون‌های این شخص برای همیشه پاک می‌شود. این عملیات غیرقابل بازگشت است.',
-    confirmText: 'بله، حذف کن', 
-    confirmClass: 'btn-danger-ghost',
-    cancelText: 'انصراف',
-    onConfirm: async () => {
-      try {
-        await Api.adminDeleteMember(userId);
-        closeDialog();
-        showToast('کاربر با موفقیت حذف شد');
-        await loadAdminMembers();
-      } catch (e) {
-        showToast('خطا در حذف: ' + e.message, 'error');
-      }
-    }
-  });
-}
-
-// --- توابع مربوط به Notion ---
-
-async function handleSyncNotion() {
-  const btn = document.getElementById('btnSyncNotion');
-  const originalContent = btn.innerHTML;
+// --- منطق نقاط بازیابی (Restore Points) ---
+async function renderRestorePointsSection() {
+  const container = document.getElementById('restorePointsContainer');
+  const membersList = document.getElementById('adminMembersList');
   
-  try {
-    btn.disabled = true;
-    btn.innerHTML = `<span class="material-symbols-rounded" style="font-size: 16px; vertical-align: middle; margin-left: 4px; animation: spin 1s linear infinite;">sync</span> در حال همگام‌سازی...`;
-    
-    await Api.syncNotion();
-    
-    showToast('همگام‌سازی با موفقیت انجام شد! برنامه‌ها از ناتیون اضافه شدند.', 'success');
-    // رفرش کردن صفحه پلن اگر کاربر در آنجا بود (اختیاری)
-  } catch (e) {
-    showToast('خطا در همگام‌سازی: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = originalContent;
+  if (!container) return;
+
+  if (container.style.display === 'block') {
+    container.style.display = 'none';
+    membersList.style.display = 'block';
+    return;
   }
-}
 
-// --- توابع مربوط به Restore Points ---
+  container.style.display = 'block';
+  membersList.style.display = 'none';
+  container.innerHTML = `<div class="empty"><span class="material-symbols-rounded">hourglass_top</span><p>دریافت نقاط بازیابی...</p></div>`;
 
-async function loadRestorePoints() {
-  restorePointsLoading = true;
   try {
     restorePoints = await Api.listRestorePoints();
-    showRestorePointsList();
-  } catch (e) {
-    showToast('خطا در دریافت لیست بکاپ‌ها: ' + e.message, 'error');
-  } finally {
-    restorePointsLoading = false;
-  }
-}
-
-function showCreateRestorePointDialog() {
-  let nameInput = '';
-  openDialog({
-    icon: 'save',
-    title: 'ایجاد نقطه بازیابی جدید',
-    text: 'یک نام توصیفی برای این بکاپ وارد کنید (مثلاً: قبل از آپدیت ناتیون).',
-    inputPlaceholder: 'نام بکاپ...',
-    inputType: 'text',
-    confirmText: 'ساخت بکاپ',
-    onInput: (val) => { nameInput = val; },
-    onConfirm: async () => {
-      if (!nameInput.trim()) {
-        showToast('لطفاً یک نام وارد کنید', 'error');
-        return false; // جلوگیری از بسته شدن دیالوگ
-      }
-      try {
-        showToast('در حال ساخت بکاپ...', 'info');
-        await Api.createRestorePoint(nameInput);
-        closeDialog();
-        showToast('نقطه بازیابی با موفقیت ساخته شد', 'success');
-        loadRestorePoints();
-      } catch (e) {
-        showToast('خطا: ' + e.message, 'error');
-        return false;
-      }
-    }
-  });
-}
-
-function showRestorePointsList() {
-  if (restorePointsLoading) {
-    showToast('در حال بارگذاری...', 'info');
-    loadRestorePoints();
-    return;
-  }
-
-  if (!restorePoints || restorePoints.length === 0) {
-    showToast('هیچ نقطه بازیابی وجود ندارد.', 'info');
-    return;
-  }
-
-  const listHtml = restorePoints.map(rp => `
-    <div style="padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center;">
-      <div>
-        <div style="font-weight: bold; font-size: 14px;">${escapeHtml(rp.name)}</div>
-        <div style="font-size: 11px; color: var(--text-3); margin-top: 4px;">
-          تاریخ: ${new Date(rp.created_at).toLocaleDateString('fa-IR')} 
-          <br>توضیحات: ${rp.description || 'بدون توضیح'}
-        </div>
+    
+    let html = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <h2 style="font-size:16px; font-weight:800; margin:0;">نقاط بازیابی</h2>
+        <button class="btn-sm btn-primary" onclick="handleCreateRestorePoint()">
+          <span class="material-symbols-rounded" style="font-size:16px;">add</span> ساخت نقطه جدید
+        </button>
+        <button class="icon-btn" onclick="renderRestorePointsSection()"><span class="material-symbols-rounded">close</span></button>
       </div>
-      <button class="btn-sm btn-danger-ghost" onclick="applyRestorePointConfirm(${rp.id}, '${escapeHtml(rp.name)}')">
-        بازگردانی
-      </button>
-    </div>
-  `).join('');
+    `;
 
-  openDialog({
-    icon: 'history',
-    title: 'لیست نقاط بازیابی',
-    text: `<div style="max-height: 300px; overflow-y: auto; text-align: right;">${listHtml}</div>`,
-    confirmText: 'بستن',
-    hideCancel: true,
-    onConfirm: () => closeDialog()
-  });
+    if (!restorePoints || restorePoints.length === 0) {
+      html += emptyState('history', 'نقطه بازیابی وجود ندارد', 'قبل از تغییرات بزرگ یک نقطه بسازید.');
+    } else {
+      html += restorePoints.map(rp => `
+        <div class="card" style="margin-bottom:10px; border-left: 4px solid var(--primary);">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-weight:800; font-size:14px;">${escapeHtml(rp.name || 'بدون نام')}</div>
+              <div style="font-size:11px; color:var(--text-3); margin-top:4px;">
+                ایجاد شده در: ${new Date(rp.created_at).toLocaleString('fa-IR')}
+              </div>
+            </div>
+            <button class="btn-sm btn-danger-ghost" onclick="handleApplyRestorePoint(${rp.id})">
+              بازگردانی
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+    container.innerHTML = html;
+  } catch (e) {
+    container.innerHTML = `<div class="empty" style="color:var(--danger)">خطا: ${e.message}</div>`;
+  }
 }
 
-function applyRestorePointConfirm(id, name) {
-  openDialog({
-    icon: 'warning',
-    iconColor: 'var(--danger)',
-    title: `بازگردانی به "${name}"`,
-    text: '⚠️ آیا مطمئن هستید؟ تمام تغییرات بعد از این تاریخ حذف خواهند شد و داده‌ها به حالت آن زمان برمی‌گردند.',
-    confirmText: 'بله، بازگردانی کن',
-    confirmClass: 'btn-danger-ghost',
-    cancelText: 'انصراف',
-    onConfirm: async () => {
-      try {
-        closeDialog(); // بستن دیالوگ لیست
-        showToast('در حال بازگردانی اطلاعات...', 'info');
-        await Api.applyRestorePoint(id);
-        showToast('سیستم با موفقیت به حالت قبل بازگردانده شد.', 'success');
-        // رفرش کلی اپلیکیشن ممکن است لازم باشد
-        setTimeout(() => location.reload(), 2000);
-      } catch (e) {
-        showToast('خطا در بازگردانی: ' + e.message, 'error');
-      }
+async function handleCreateRestorePoint() {
+  const name = prompt('نام این نقطه بازیابی را وارد کنید (مثلا: قبل از سینک ناتیون):', 'Backup-' + new Date().toLocaleDateString('fa-IR').replace(/\//g,'-'));
+  if (!name) return;
+
+  try {
+    showToast('در حال ساخت نقطه بازیابی...', 'info');
+    await Api.createRestorePoint(name);
+    showToast('نقطه بازیابی با موفقیت ساخته شد', 'success');
+    renderRestorePointsSection(); // رفرش لیست
+  } catch (e) {
+    showToast('خطا در ساخت نقطه: ' + e.message, 'error');
+  }
+}
+
+async function handleApplyRestorePoint(id) {
+  if(!confirm('آیا مطمئن هستید؟ تمام داده‌های فعلی پاک شده و به حالت این نقطه برمی‌گردند. این عملیات غیرقابل بازگشت است.')) return;
+  
+  try {
+    showToast('در حال بازگردانی داده‌ها...', 'info');
+    await Api.applyRestorePoint(id);
+    showToast('سیستم با موفقیت بازیابی شد', 'success');
+    renderRestorePointsSection();
+  } catch (e) {
+    showToast('خطا در بازیابی: ' + e.message, 'error');
+  }
+}
+
+// attaching functions to window for HTML onclick handlers
+if (typeof window !== 'undefined') {
+  window.toggleMemberBan = async (userId, banned) => {
+    try {
+      await Api.adminSetBan(userId, banned);
+      showToast(banned ? 'کاربر مسدود شد' : 'مسدودیت برداشته شد');
+      await loadAdminMembers(true);
+    } catch (e) {
+      showToast('خطا: ' + e.message, 'error');
     }
-  });
+  };
+
+  window.confirmDeleteMember = (userId, name) => {
+    openDialog({
+      icon: 'person_remove', 
+      title: `حذف ${name}`,
+      text: 'حساب این عضو و تمام برنامه/سوال/آزمون‌هاش برای همیشه حذف می‌شه. مطمئنی؟',
+      confirmText: 'حذف کن', 
+      confirmClass: 'btn-danger-ghost',
+      onConfirm: async () => {
+        try {
+          await Api.adminDeleteMember(userId);
+          closeDialog();
+          showToast('عضو حذف شد');
+          await loadAdminMembers(true);
+        } catch (e) {
+          showToast('خطا: ' + e.message, 'error');
+        }
+      }
+    });
+  };
 }
