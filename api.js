@@ -118,6 +118,13 @@ const Api = (() => {
     adminListMembers: () => request("GET", "/admin/members"),
     adminSetBan: (userId, banned) => request("POST", `/admin/members/${userId}/ban`, { json: { banned } }),
     adminDeleteMember: (userId) => request("DELETE", `/admin/members/${userId}`),
+    
+    // ---- Notion Integration & Restore Points (New) ----
+    syncNotion: () => request("POST", "/admin/notion/sync"),
+    listRestorePoints: () => request("GET", "/admin/restore-points"),
+    createRestorePoint: (name) => request("POST", "/admin/restore-points", { json: { name } }),
+    getRestorePoint: (id) => request("GET", `/admin/restore-points/${id}`),
+    applyRestorePoint: (id) => request("POST", `/admin/restore-points/${id}/apply`),
   };
 })();
 
