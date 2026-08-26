@@ -1,13 +1,4 @@
-/* =========================================================================
-   پنل ادمین — لیست اعضا، آمار ۷ روز اخیر، بن/آنبن، حذف عضو
-   فقط برای کاربری که role='admin' داره قابل دسترسیه (چک اصلی سمت بکنده،
-   این صفحه فقط UI رو نشون نمی‌ده اگه دسترسی نداشته باشه).
-   ========================================================================= */
-let adminMembers = null;
-let adminLoading = false;
-
-SCREENS.admin = function (root) {
-  if (DB.profile.role !== 'admin') {
+if (DB.profile.role !== 'admin') {
     root.innerHTML = emptyState('lock', 'دسترسی نداری', 'این بخش فقط برای ادمین گروهه');
     return;
   }
@@ -17,7 +8,36 @@ SCREENS.admin = function (root) {
       <button class="icon-btn" onclick="go('profile')"><span class="material-symbols-rounded">arrow_forward</span></button>
       <h1 class="page-title" style="margin:0;">پنل ادمین</h1>
     </div>
-    <p class="page-sub">مدیریت اعضای گروه</p>
+    <p class="page-sub">مدیریت سیستم و اعضا</p>
+    
+    <!-- بخش جدید: ابزارهای ناتیون و بازیابی -->
+    <div class="card" style="margin-bottom:16px; background: linear-gradient(135deg, rgba(129, 140, 248, 0.1), rgba(129, 140, 248, 0.05)); border: 1px solid rgba(129, 140, 248, 0.2);">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+        <span class="material-symbols-rounded" style="color:var(--primary);">database</span>
+        <h3 style="margin:0; font-size:14px; color:var(--primary);">ابزارهای پیشرفته</h3>
+      </div>
+      
+      <div class="btn-row" style="margin-bottom:8px;">
+        <button class="btn-sm btn-primary" style="flex:1;" onclick="syncWithNotion()">
+          <span class="material-symbols-rounded" style="font-size:16px; vertical-align:middle; margin-left:4px;">sync</span>
+          همگام‌سازی با Notion
+        </button>
+      </div>
+      
+      <div class="btn-row">
+        <button class="btn-sm btn-ghost" style="flex:1; border:1px solid var(--border);" onclick="showRestorePoints()">
+          <span class="material-symbols-rounded" style="font-size:16px; vertical-align:middle; margin-left:4px;">history</span>
+          نقاط بازیابی
+        </button>
+        <button class="btn-sm btn-ghost" style="flex:1; border:1px solid var(--border);" onclick="createNewRestorePoint()">
+          <span class="material-symbols-rounded" style="font-size:16px; vertical-align:middle; margin-left:4px;">add_task</span>
+          ساخت Restore Point
+        </button>
+      </div>
+    </div>
+
+    <!-- لیست اعضا (کد قبلی) -->
+    <h3 style="font-size:13px; color:var(--text-2); margin:16px 0 8px;">اعضای گروه</h3>
     <div id="adminMembersList"></div>
   `;
 
@@ -32,6 +52,115 @@ SCREENS.admin = function (root) {
 
   if (adminMembers) renderAdminMembersListInto(listEl);
 };
+
+// ---- توابع جدید ناتیون و ریستور ----
+
+async function syncWithNotion() {
+  openDialog({
+    icon: 'sync',
+    title: 'همگام‌سازی با Notion',
+    text: 'آیا مطمئن هستید؟ تمام داده‌های جدید از دیتابیس ناتیون خوانده شده و به اپلیکیشن اضافه می‌شوند. این عملیات ممکن است چند ثانیه طول بکشد.',
+    confirmText: 'شروع همگام‌سازی',
+    onConfirm: async () => {
+      closeDialog();
+      const loadingId = showToast('در حال ارتباط با ناتیون...', 'loading');
+      try {
+        await Api.syncNotion();
+        dismissToast(loadingId);
+        showToast('همگام‌سازی با موفقیت انجام شد!', 'success');
+        // رفرش کردن صفحه اصلی اگر کاربر بخواهد
+      } catch (e) {
+        dismissToast(loadingId);
+        showToast('خطا در همگام‌سازی: ' + e.message, 'error');
+      }
+    }
+  });
+}
+
+async function createNewRestorePoint() {
+  const name = prompt("نام این نقطه بازیابی را وارد کنید (مثلاً: قبل از آپدیت ناتیون):", "Backup_" + new Date().toLocaleDateString('fa-IR').replace(/\//g, '-'));
+  if (!name) return;
+
+  const loadingId = showToast('در حال ساخت نقطه بازیابی...', 'loading');
+  try {
+    await Api.createRestorePoint(name);
+    dismissToast(loadingId);
+    showToast('نقطه بازیابی با موفقیت ساخته شد', 'success');
+  } catch (e) {
+    dismissToast(loadingId);
+    showToast('خطا: ' + e.message, 'error');
+  }
+}
+
+async function showRestorePoints() {
+  const loadingId = showToast('در حال دریافت لیست...', 'loading');
+  try {
+    const points = await Api.listRestorePoints();
+    dismissToast(loadingId);
+    
+    if (!points || points.length === 0) {
+      showToast('هیچ نقطه بازیابی یافت نشد', 'info');
+      return;
+    }
+
+    // ساخت لیست نمایشی
+    const listHtml = points.map(p => `
+      <div style="padding:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-weight:bold; font-size:13px;">${escapeHtml(p.name)}</div>
+          <div style="font-size:11px; color:var(--text-3); margin-top:2px;">
+            ${new Date(p.created_at).toLocaleString('fa-IR')}
+            <br>
+            <span style="color:${p.is_safe ? 'var(--success)' : 'var(--danger)'}">
+              ${p.is_safe ? 'سالم' : 'احتمال مشکل'}
+            </span>
+          </div>
+        </div>
+        <button class="btn-sm btn-danger-ghost" onclick='applyRestorePoint(${p.id}, "${escapeHtml(p.name)}")'>
+          بازگردانی
+        </button>
+      </div>
+    `).join('');
+
+    openDialog({
+      icon: 'history',
+      title: 'نقاط بازیابی',
+      text: `<div style="max-height:300px; overflow-y:auto; width:100%;">${listHtml}</div>`,
+      confirmText: 'بستن',
+      confirmClass: 'btn-ghost',
+      onConfirm: () => closeDialog()
+    });
+
+  } catch (e) {
+    dismissToast(loadingId);
+    showToast('خطا در دریافت لیست: ' + e.message, 'error');
+  }
+}
+
+window.applyRestorePoint = function(id, name) {
+  openDialog({
+    icon: 'warning',
+    title: 'تایید بازگردانی',
+    text: `آیا مطمئن هستید که می‌خواهید کل برنامه را به وضعیت "${name}" بازگردانید؟ <br><strong style="color:var(--danger)">تمام تغییرات بعد از این تاریخ حذف خواهند شد!</strong>`,
+    confirmText: 'بله، بازگردانی کن',
+    confirmClass: 'btn-danger',
+    onConfirm: async () => {
+      closeDialog();
+      const loadingId = showToast('در حال بازگردانی اطلاعات...', 'loading');
+      try {
+        await Api.applyRestorePoint(id);
+        dismissToast(loadingId);
+        showToast('سیستم با موفقیت بازگردانی شد', 'success');
+        setTimeout(() => location.reload(), 2000); // ریلود صفحه برای اعمال تغییرات
+      } catch (e) {
+        dismissToast(loadingId);
+        showToast('خطا در بازگردانی: ' + e.message, 'error');
+      }
+    }
+  });
+};
+
+// ---- توابع قبلی (بدون تغییر) ----
 
 async function loadAdminMembers() {
   adminLoading = true;
