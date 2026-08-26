@@ -40,7 +40,10 @@ const Api = (() => {
   }
 
   async function request(method, path, { json, params, auth = true } = {}) {
-    let url = APEX_CONFIG.BACKEND_URL + path;
+    // آدرس بکند رو نرمالایز می‌کنیم تا اگه کاربر با یا بدون "/" آخر ست
+    // کرده باشه، همیشه یه اسلش تمیز بین دامنه و مسیر باشه (نه صفر، نه دوتا)
+    const base = (APEX_CONFIG.BACKEND_URL || "").replace(/\/+$/, "");
+    let url = base + path;
     if (params) {
       const qs = new URLSearchParams(
         Object.entries(params).filter(([, v]) => v !== undefined && v !== null)

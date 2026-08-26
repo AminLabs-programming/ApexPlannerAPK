@@ -5,6 +5,6 @@
    مثال آدرس واقعی: https://apex-backend-production.up.railway.app
    ========================================================================= */
 const APEX_CONFIG = {
-  BACKEND_URL: "https://diplomatic-prosperity-production.up.railway.app/",
+  BACKEND_URL: "https://diplomatic-prosperity-production.up.railway.app",
 };
 if (typeof window !== 'undefined') window.APEX_CONFIG = APEX_CONFIG;
