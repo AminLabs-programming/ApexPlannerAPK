@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.railway.up.diplomatic_prosperity_production.twa",
+        "sha256_cert_fingerprints": ["30:91:33:22:8F:BC:5B:AF:1B:48:29:25:3C:B6:09:31:77:DE:CA:53:61:C0:07:F7:94:69:E5:DA:3E:E6:D2:5D"]
+      }
+    }]
