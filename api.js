@@ -1,4 +1,9 @@
-   لایه‌ی ارتباط با بکند - ApexPlanner
+/* =========================================================================
+   لایه‌ی ارتباط با بکند
+   تمام درخواست‌ها از اینجا رد می‌شن. توکن JWT توی localStorage مرورگر نگه
+   داشته می‌شه تا بین باز کردن‌های بعدی اپ هم کاربر لاگین بمونه. چون این اپ
+   یک فایل مستقل روی گیت‌هاب پیجزه (نه آرتیفکت داخل چت کلود)، استفاده از
+   localStorage اینجا کاملاً پشتیبانی می‌شه و محدودیت آرتیفکت‌ها صدق نمی‌کنه.
    ========================================================================= */
 
 const Api = (() => {
@@ -35,6 +40,8 @@ const Api = (() => {
   }
 
   async function request(method, path, { json, params, auth = true } = {}) {
+    // آدرس بکند رو نرمالایز می‌کنیم تا اگه کاربر با یا بدون "/" آخر ست
+    // کرده باشه، همیشه یه اسلش تمیز بین دامنه و مسیر باشه (نه صفر، نه دوتا)
     const base = (APEX_CONFIG.BACKEND_URL || "").replace(/\/+$/, "");
     let url = base + path;
     if (params) {
@@ -111,14 +118,11 @@ const Api = (() => {
     adminListMembers: () => request("GET", "/admin/members"),
     adminSetBan: (userId, banned) => request("POST", `/admin/members/${userId}/ban`, { json: { banned } }),
     adminDeleteMember: (userId) => request("DELETE", `/admin/members/${userId}`),
-    
-    // ---- NEW: Notion & Restore Points ----
-    syncNotion: () => request("POST", "/admin/notion/sync"),
-    listRestorePoints: () => request("GET", "/admin/restore-points"),
-    createRestorePoint: (name) => request("POST", "/admin/restore-points", { json: { name } }),
-    getRestorePoint: (id) => request("GET", `/admin/restore-points/${id}`),
-    applyRestorePoint: (id) => request("POST", `/admin/restore-points/${id}/apply`),
   };
 })();
 
+// در محیط‌های واقعی مرورگر، `const Api` در بالای فایل به‌صورت خودکار به‌عنوان
+// یک global در دسترسه (چون این کد به‌صورت <script> معمولی، نه ماژول، لود
+// می‌شه). این خط صرفاً برای اطمینان و سازگاری با ابزارهای تست/دیباگ اضافه
+// شده که ممکنه از vm context جدا به این متغیر نیاز داشته باشن.
 if (typeof window !== 'undefined') window.Api = Api;
