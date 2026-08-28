@@ -213,7 +213,10 @@ function renderAnalysisDetailBody(body, exam) {
   // حتی اگه mapping نداره، iframe رو نشون می‌دیم تا کاربر
   // بتونه PDF رو ببینه. کارت هشدار mapping فقط بالای PDF میاد.
   // ========================================================
+  // pdfUrl (بدون download=1) → inline، برای iframe/viewer
+  // pdfDownloadUrl (با download=1) → attachment، فقط برای دکمه‌ی دانلود
   const pdfUrl = Api.getAnalysisPdfUrl(exam.id);
+  const pdfDownloadUrl = Api.getAnalysisPdfUrl(exam.id, true);
 
   body.innerHTML = `
     <div class="qcard" style="margin-bottom:14px;">
@@ -225,7 +228,7 @@ function renderAnalysisDetailBody(body, exam) {
       ${exam.overallNote ? `<div style="margin-top:10px; font-size:13.5px; line-height:1.9; color:var(--text-2); background:var(--surface-3); border-radius:8px; padding:10px;">${escapeHtml(exam.overallNote)}</div>` : ''}
       <div class="btn-row" style="margin-top:12px;">
         <button class="btn-sm btn-ghost" style="flex:1;" onclick="openEditAnalysisMetaSheet('${exam.id}')">ویرایش اطلاعات</button>
-        <a class="btn-sm btn-ghost" style="flex:1; text-align:center; text-decoration:none; display:flex; align-items:center; justify-content:center;" href="${pdfUrl}" download="${escapeHtml(exam.originalFilename || exam.title + '.pdf')}">
+        <a class="btn-sm btn-ghost" style="flex:1; text-align:center; text-decoration:none; display:flex; align-items:center; justify-content:center;" href="${pdfDownloadUrl}" download="${escapeHtml(exam.originalFilename || exam.title + '.pdf')}">
           <span class="material-symbols-rounded" style="font-size:17px;">download</span> دانلود PDF
         </a>
         <button class="btn-sm btn-danger-ghost" style="flex:1;" onclick="confirmDeleteAnalysisExam('${exam.id}')">حذف آزمون</button>
