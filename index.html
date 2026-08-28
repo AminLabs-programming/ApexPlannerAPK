@@ -470,7 +470,6 @@ a{color:inherit; text-decoration:none;}
         <span class="material-symbols-rounded" id="syncStatusIcon" style="font-size:19px; color:var(--text-3);">cloud_done</span>
         <span id="syncBadge" style="display:none; position:absolute; top:-2px; left:-2px; min-width:16px; height:16px; padding:0 3px; border-radius:8px; background:var(--danger,#ef4444); color:#fff; font-size:9.5px; font-weight:800; align-items:center; justify-content:center;"></span>
       </div>
-      <button class="icon-btn" onclick="go('analysisBank')" title="بانک تحلیل"><span class="material-symbols-rounded" style="font-size:19px;">folder_open</span></button>
       <button class="icon-btn" id="btnAlarms"><span class="material-symbols-rounded" style="font-size:19px;">notifications</span><span class="badge-dot hide" id="alarmDot"></span></button>
       <button class="icon-btn" onclick="go('profile')"><span class="material-symbols-rounded" style="font-size:19px;">person</span></button>
     </div>
@@ -494,7 +493,10 @@ a{color:inherit; text-decoration:none;}
     <span class="material-symbols-rounded">quiz</span><span class="lbl">سوالات</span>
   </button>
   <button class="nav-item" data-nav="stats" onclick="go('stats')">
-    <span class="material-symbols-rounded">bar_chart</span><span class="lbl">تحلیل</span>
+    <span class="material-symbols-rounded">bar_chart</span><span class="lbl">آمار</span>
+  </button>
+  <button class="nav-item" data-nav="analysisBank" onclick="go('analysisBank')">
+    <span class="material-symbols-rounded">folder_special</span><span class="lbl">بانک تحلیل</span>
   </button>
 </div>
 
