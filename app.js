@@ -216,6 +216,8 @@ function defaultDB() {
     exams: [],            // {id,name,date,subjects:[{name,percent}]}
     alarms: [],           // {id,label,time:'HH:MM',days:[0..6],enabled}
     sessions: [],          // completed study sessions {id,date,subject,minutes,mode} — فقط محلی (تایمر)
+    analysisExams: [],      // بانک تحلیل — فقط وقتی کاربر وارد اون صفحه می‌شه لود می‌شه (نه توی syncFromServer اصلی)
+    analysisExamsLoaded: false,
   };
 }
 
@@ -249,6 +251,26 @@ function examFromApi(e) {
 }
 function alarmFromApi(a) {
   return { id: a.id, label: a.label, time: a.time, days: a.days || [], enabled: a.enabled };
+}
+function analysisExamListFromApi(e) {
+  return {
+    id: e.id, title: e.title, date: e.date || '', pageCount: e.page_count,
+    questionCount: e.question_count, mappingMethod: e.mapping_method,
+    overallNote: e.overall_note || '', notesCount: e.notes_count || 0, createdAt: e.created_at,
+  };
+}
+function analysisExamFullFromApi(e) {
+  return {
+    id: e.id, title: e.title, date: e.date || '', originalFilename: e.original_filename || '',
+    pageCount: e.page_count, questionCount: e.question_count,
+    questionPageMap: e.question_page_map || {}, mappingMethod: e.mapping_method,
+    manualStartPage: e.manual_start_page, manualEndPage: e.manual_end_page,
+    overallNote: e.overall_note || '', createdAt: e.created_at,
+    notes: (e.notes || []).map(n => ({
+      id: n.id, examId: n.exam_id, questionNumber: n.question_number,
+      subject: n.subject || '', note: n.note || '', isCorrect: n.is_correct, page: n.page,
+    })),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -841,6 +863,100 @@ const _alarmCrud = makeOfflineCrud({
 async function apiAddAlarm(payload) { return _alarmCrud.add(payload); }
 async function apiUpdateAlarm(id, payload) { return _alarmCrud.update(id, payload); }
 async function apiDeleteAlarm(id) { return _alarmCrud.del(id); }
+
+// ---------------------------------------------------------------------------
+// بانک تحلیل (Analysis Bank)
+// ---------------------------------------------------------------------------
+// این بخش عمداً بیرون از موتور آفلاین-اولِ makeOfflineCrud نگه داشته شده:
+// آپلود PDF یک عملیات باینری/سنگینه که معنایی برای صف‌کردن آفلاین نداره
+// (نمی‌شه یه فایل چند مگابایتی رو توی IndexedDB صف کرد و امیدوار بود بعداً
+// خودش سینک بشه). به‌جاش: این صفحه صراحتاً نیاز به اتصال داره؛ اگه کاربر
+// آفلاینه، پیام روشن بهش می‌دیم. خواندن/مرور آزمون‌های قبلاً لود شده اما
+// از کش محلی (DB.analysisExams) کار می‌کنه.
+async function loadAnalysisExamsIfNeeded(force = false) {
+  if (DB.analysisExamsLoaded && !force) return DB.analysisExams;
+  try {
+    const list = await Api.listAnalysisExams();
+    await withDbLock(async () => {
+      DB.analysisExams = list.map(analysisExamListFromApi);
+      DB.analysisExamsLoaded = true;
+      await persistDbNow();
+    });
+  } catch (e) {
+    if (!isOfflineError(e)) showToast('خطا در بارگذاری بانک تحلیل: ' + e.message, 'error');
+    // آفلاین: هر چی از قبل کش شده بود همون رو نشون بده
+  }
+  return DB.analysisExams;
+}
+
+async function apiUploadAnalysisExam(meta, file) {
+  const created = await Api.createAnalysisExam(meta, file); // throws on failure (incl. offline)
+  const full = analysisExamFullFromApi(created);
+  await withDbLock(async () => {
+    DB.analysisExams.unshift({
+      id: full.id, title: full.title, date: full.date, pageCount: full.pageCount,
+      questionCount: full.questionCount, mappingMethod: full.mappingMethod,
+      overallNote: full.overallNote, notesCount: full.notes.length, createdAt: full.createdAt,
+    });
+    await persistDbNow();
+  });
+  return full;
+}
+
+async function apiGetAnalysisExamFull(examId) {
+  const full = analysisExamFullFromApi(await Api.getAnalysisExam(examId));
+  return full;
+}
+
+async function apiUpdateAnalysisExamMeta(examId, payload) {
+  const updated = await Api.updateAnalysisExam(examId, payload);
+  await withDbLock(async () => {
+    const idx = DB.analysisExams.findIndex(x => x.id === examId);
+    if (idx >= 0) {
+      DB.analysisExams[idx] = { ...DB.analysisExams[idx], title: updated.title, date: updated.date || '', overallNote: updated.overall_note || '' };
+    }
+    await persistDbNow();
+  });
+  return analysisExamFullFromApi(updated);
+}
+
+async function apiRemapAnalysisExam(examId, startPage, endPage) {
+  const updated = await Api.remapAnalysisExam(examId, startPage, endPage);
+  await withDbLock(async () => {
+    const idx = DB.analysisExams.findIndex(x => x.id === examId);
+    if (idx >= 0) DB.analysisExams[idx].mappingMethod = updated.mapping_method;
+    await persistDbNow();
+  });
+  return analysisExamFullFromApi(updated);
+}
+
+async function apiDeleteAnalysisExam(examId) {
+  await Api.deleteAnalysisExam(examId);
+  await withDbLock(async () => {
+    DB.analysisExams = DB.analysisExams.filter(x => x.id !== examId);
+    await persistDbNow();
+  });
+}
+
+async function apiUpsertAnalysisNote(examId, payload) {
+  const note = await Api.upsertAnalysisNote(examId, payload);
+  await withDbLock(async () => {
+    const idx = DB.analysisExams.findIndex(x => x.id === examId);
+    if (idx >= 0) {
+      // notesCount ممکنه دقیقاً درست نباشه اگه این ویرایش (نه ساخت) بوده؛
+      // برای سادگی، بعد از هر تغییر یادداشت، لیست رو force-refresh می‌کنیم
+      // که مقدار notesCount هم از سرور درست بیاد.
+    }
+    await persistDbNow();
+  });
+  loadAnalysisExamsIfNeeded(true); // fire-and-forget refresh برای درست‌شدن notesCount توی لیست
+  return { id: note.id, examId: note.exam_id, questionNumber: note.question_number, subject: note.subject || '', note: note.note || '', isCorrect: note.is_correct, page: note.page };
+}
+
+async function apiDeleteAnalysisNote(examId, noteId) {
+  await Api.deleteAnalysisNote(examId, noteId);
+  loadAnalysisExamsIfNeeded(true);
+}
 
 // ---------------------------------------------------------------------------
 // Study report text builder (mirrors build_study_report_text_for_date)

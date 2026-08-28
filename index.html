@@ -449,6 +449,10 @@ a{color:inherit; text-decoration:none;}
 .streak-dot.done{background:var(--success); color:#fff;}
 .streak-dot.today{background:var(--primary); color:#fff; box-shadow:0 0 0 3px rgba(99,102,241,.25);}
 
+/* Analysis bank — PDF viewer */
+.pdf-viewer-wrap{border:1px solid var(--border-soft); border-radius:var(--radius); overflow:hidden; background:var(--surface-2);}
+.pdf-viewer{width:100%; height:60vh; min-height:420px; border:0; display:block; background:#fff;}
+
 .hide{display:none !important;}
 </style>
 </head>
@@ -466,6 +470,7 @@ a{color:inherit; text-decoration:none;}
         <span class="material-symbols-rounded" id="syncStatusIcon" style="font-size:19px; color:var(--text-3);">cloud_done</span>
         <span id="syncBadge" style="display:none; position:absolute; top:-2px; left:-2px; min-width:16px; height:16px; padding:0 3px; border-radius:8px; background:var(--danger,#ef4444); color:#fff; font-size:9.5px; font-weight:800; align-items:center; justify-content:center;"></span>
       </div>
+      <button class="icon-btn" onclick="go('analysisBank')" title="بانک تحلیل"><span class="material-symbols-rounded" style="font-size:19px;">folder_open</span></button>
       <button class="icon-btn" id="btnAlarms"><span class="material-symbols-rounded" style="font-size:19px;">notifications</span><span class="badge-dot hide" id="alarmDot"></span></button>
       <button class="icon-btn" onclick="go('profile')"><span class="material-symbols-rounded" style="font-size:19px;">person</span></button>
     </div>
@@ -506,6 +511,7 @@ a{color:inherit; text-decoration:none;}
 <script src="screens_timer.js"></script>
 <script src="screens_questions.js"></script>
 <script src="screens_stats.js"></script>
+<script src="screens_analysis.js"></script>
 <script src="screens_profile.js"></script>
 <script src="screens_admin.js"></script>
 <script>

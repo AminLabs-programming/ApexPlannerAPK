@@ -43,10 +43,14 @@ const Api = (() => {
     get isNetworkError() { return this.status === 0; }
   }
 
-  async function request(method, path, { json, params, auth = true } = {}) {
+  function backendBase() {
+    return (APEX_CONFIG.BACKEND_URL || "").replace(/\/+$/, "");
+  }
+
+  async function request(method, path, { json, params, auth = true, formData } = {}) {
     // آدرس بکند رو نرمالایز می‌کنیم تا اگه کاربر با یا بدون "/" آخر ست
     // کرده باشه، همیشه یه اسلش تمیز بین دامنه و مسیر باشه (نه صفر، نه دوتا)
-    const base = (APEX_CONFIG.BACKEND_URL || "").replace(/\/+$/, "");
+    const base = backendBase();
     let url = base + path;
     if (params) {
       const qs = new URLSearchParams(
@@ -54,7 +58,11 @@ const Api = (() => {
       ).toString();
       if (qs) url += "?" + qs;
     }
-    const headers = { "Content-Type": "application/json" };
+    // برای آپلود PDF از FormData استفاده می‌کنیم؛ در این حالت نباید خودمون
+    // Content-Type ست کنیم چون مرورگر باید boundary مولتی‌پارت رو خودش
+    // اضافه کنه (اگه دستی ست کنیم، فایل درست پارس نمی‌شه).
+    const headers = {};
+    if (!formData) headers["Content-Type"] = "application/json";
     if (auth) {
       const token = getToken();
       if (token) headers["Authorization"] = "Bearer " + token;
@@ -64,7 +72,7 @@ const Api = (() => {
       res = await fetch(url, {
         method,
         headers,
-        body: json !== undefined ? JSON.stringify(json) : undefined,
+        body: formData ? formData : (json !== undefined ? JSON.stringify(json) : undefined),
       });
     } catch (networkErr) {
       throw new ApiError("اتصال به سرور برقرار نشد. اینترنتت یا آدرس بکند رو چک کن.", 0);
@@ -143,6 +151,32 @@ const Api = (() => {
     // ---- admin: notion sync ----
     adminNotionStatus: () => request("GET", "/admin/notion/status"),
     adminNotionSync: (date) => request("POST", "/admin/notion/sync", { json: { date: date || null } }),
+
+    // ---- analysis bank (بانک تحلیل) ----
+    listAnalysisExams: () => request("GET", "/analysis-exams"),
+    getAnalysisExam: (id) => request("GET", `/analysis-exams/${id}`),
+    // آپلود PDF: multipart/form-data. meta = {title,date,question_count,manual_start_page,manual_end_page,overall_note}
+    createAnalysisExam: (meta, file) => {
+      const fd = new FormData();
+      fd.append("title", meta.title);
+      fd.append("date", meta.date || "");
+      fd.append("question_count", String(meta.question_count));
+      if (meta.manual_start_page != null) fd.append("manual_start_page", String(meta.manual_start_page));
+      if (meta.manual_end_page != null) fd.append("manual_end_page", String(meta.manual_end_page));
+      fd.append("overall_note", meta.overall_note || "");
+      fd.append("pdf", file, file.name);
+      return request("POST", "/analysis-exams", { formData: fd });
+    },
+    updateAnalysisExam: (id, payload) => request("PATCH", `/analysis-exams/${id}`, { json: payload }),
+    remapAnalysisExam: (id, startPage, endPage) =>
+      request("POST", `/analysis-exams/${id}/remap`, { json: { manual_start_page: startPage, manual_end_page: endPage } }),
+    deleteAnalysisExam: (id) => request("DELETE", `/analysis-exams/${id}`),
+    upsertAnalysisNote: (examId, payload) => request("POST", `/analysis-exams/${examId}/notes`, { json: payload }),
+    deleteAnalysisNote: (examId, noteId) => request("DELETE", `/analysis-exams/${examId}/notes/${noteId}`),
+    // <iframe>/دانلود نمی‌تونن هدر Authorization بفرستن، پس توکن رو به‌صورت
+    // query param توی خود URL می‌ذاریم (بک‌اند این route رو جدا از بقیه
+    // این‌طوری قبول می‌کنه — نه به‌عنوان الگوی عمومی برای سایر route ها).
+    getAnalysisPdfUrl: (examId) => `${backendBase()}/analysis-exams/${examId}/pdf?token=${encodeURIComponent(getToken() || "")}`,
   };
 })();
 
