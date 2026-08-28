@@ -176,7 +176,13 @@ const Api = (() => {
     // <iframe>/دانلود نمی‌تونن هدر Authorization بفرستن، پس توکن رو به‌صورت
     // query param توی خود URL می‌ذاریم (بک‌اند این route رو جدا از بقیه
     // این‌طوری قبول می‌کنه — نه به‌عنوان الگوی عمومی برای سایر route ها).
-    getAnalysisPdfUrl: (examId) => `${backendBase()}/analysis-exams/${examId}/pdf?token=${encodeURIComponent(getToken() || "")}`,
+    // پیش‌فرض inline (برای نمایش داخل iframe). برای دکمه‌ی «دانلود PDF»
+    // باید forceDownload=true پاس بدی تا سرور Content-Disposition:
+    // attachment بفرسته و مرورگر واقعاً دانلودش کنه.
+    getAnalysisPdfUrl: (examId, forceDownload) => {
+      const dl = forceDownload ? "&download=1" : "";
+      return `${backendBase()}/analysis-exams/${examId}/pdf?token=${encodeURIComponent(getToken() || "")}${dl}`;
+    },
   };
 })();
 
