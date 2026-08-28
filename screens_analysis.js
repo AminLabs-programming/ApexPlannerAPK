@@ -208,14 +208,9 @@ function renderAnalysisDetailBody(body, exam) {
     `);
   }
 
-  // ========================================================
-  // FIX ۱: PDF viewer همیشه نمایش داده می‌شه
-  // حتی اگه mapping نداره، iframe رو نشون می‌دیم تا کاربر
-  // بتونه PDF رو ببینه. کارت هشدار mapping فقط بالای PDF میاد.
-  // ========================================================
-  // pdfUrl (بدون download=1) → inline، برای iframe/viewer
-  // pdfDownloadUrl (با download=1) → attachment، فقط برای دکمه‌ی دانلود
-  const pdfUrl = Api.getAnalysisPdfUrl(exam.id);
+  // pdfDownloadUrl (با download=1) → attachment، فقط برای دکمه‌ی دانلود.
+  // خود PDF viewer دیگه از این URL مستقیم استفاده نمی‌کنه — با fetch
+  // گرفته می‌شه و روی canvas رندر می‌شه (نگاه کن به initAnalysisPdfViewer).
   const pdfDownloadUrl = Api.getAnalysisPdfUrl(exam.id, true);
 
   body.innerHTML = `
@@ -255,13 +250,23 @@ function renderAnalysisDetailBody(body, exam) {
     `}
 
     <!-- =====================================================
-         FIX ۱: PDF viewer همیشه نمایش می‌شه (با یا بدون mapping)
+         PDF.js viewer — رندر روی canvas، مستقل از مرورگر/WebView
          ===================================================== -->
-    <div class="pdf-viewer-wrap" style="margin-bottom:18px;">
-      <iframe id="analysisPdfFrame" class="pdf-viewer"
-        src="${pdfUrl}#page=${analysisPdfPageGoto}"
-        title="دفترچه‌ی آزمون">
-      </iframe>
+    <div class="pdfjs-wrap" style="margin-bottom:18px;">
+      <div class="pdfjs-toolbar">
+        <div class="pdfjs-nav">
+          <button id="pdfjsPrevBtn" onclick="analysisPdfGoRelative(-1)" title="صفحه‌ی قبل">
+            <span class="material-symbols-rounded" style="font-size:18px;">chevron_right</span>
+          </button>
+          <span class="pdfjs-page-label" id="pdfjsPageLabel">…</span>
+          <button id="pdfjsNextBtn" onclick="analysisPdfGoRelative(1)" title="صفحه‌ی بعد">
+            <span class="material-symbols-rounded" style="font-size:18px;">chevron_left</span>
+          </button>
+        </div>
+      </div>
+      <div class="pdfjs-canvas-scroll" id="pdfjsCanvasScroll">
+        <div class="pdfjs-status"><span class="material-symbols-rounded" style="font-size:22px;">hourglass_top</span>در حال بارگذاری PDF…</div>
+      </div>
     </div>
 
     ${hasMap ? `
@@ -274,41 +279,113 @@ function renderAnalysisDetailBody(body, exam) {
     </div>`}
     <div class="chip-row" style="flex-wrap:wrap;">${questionChips.join('')}</div>
   `;
+
+  initAnalysisPdfViewer(exam.id);
 }
 
 // ---------------------------------------------------------------------------
-// FIX ۲ (اصلاح‌شده): پرش قابل‌اعتماد به صفحه‌ی سوال داخل iframe
-// نسخه‌ی قبلی فقط #page=N رو روی src فعلی عوض می‌کرد که باعث می‌شد در
-// خیلی از مرورگرها/WebViewها هیچ navigation جدیدی رخ نده و صفحه سفید
-// بمونه. حالا iframe رو موقتاً خالی می‌کنیم تا navigation واقعی انجام بشه.
+// PDF.js viewer — بارگذاری یک‌بار PDF در حافظه (به‌صورت ArrayBuffer) و
+// رندر صفحه‌ی دلخواه روی canvas. مستقل از iframe/پلاگین PDF مرورگره،
+// پس روی موبایل، دسکتاپ، Chrome، Edge، WebView داخل اپ یکسان کار می‌کنه.
+// ---------------------------------------------------------------------------
+let analysisPdfDocCache = {}; // examId -> pdfjsLib PDFDocumentProxy
+let analysisPdfRenderToken = 0; // برای لغو رندرهای قدیمی/همپوشان
+
+async function initAnalysisPdfViewer(examId) {
+  const scrollEl = document.getElementById('pdfjsCanvasScroll');
+  if (!scrollEl) return;
+
+  // اگه pdf.js هنوز از CDN لود نشده (شبکه کند/کاربر آفلاینه)، صبر می‌کنیم
+  if (!window.pdfjsLib) {
+    scrollEl.innerHTML = `<div class="pdfjs-status"><span class="material-symbols-rounded" style="font-size:22px;">hourglass_top</span>در حال آماده‌سازی نمایشگر PDF…</div>`;
+    await new Promise(resolve => {
+      const onReady = () => { window.removeEventListener('pdfjs-ready', onReady); resolve(); };
+      window.addEventListener('pdfjs-ready', onReady);
+      setTimeout(resolve, 6000); // حداکثر ۶ ثانیه صبر، بعد تلاش می‌کنیم (شاید تا الان لود شده)
+    });
+  }
+  if (!window.pdfjsLib) {
+    scrollEl.innerHTML = `<div class="pdfjs-status"><span class="material-symbols-rounded" style="font-size:22px;">wifi_off</span>نمایشگر PDF بارگذاری نشد. اتصال اینترنتت رو چک کن و دوباره امتحان کن.</div>`;
+    return;
+  }
+
+  try {
+    let pdfDoc = analysisPdfDocCache[examId];
+    if (!pdfDoc) {
+      scrollEl.innerHTML = `<div class="pdfjs-status"><span class="material-symbols-rounded" style="font-size:22px;">hourglass_top</span>در حال بارگذاری PDF…</div>`;
+      // با fetch می‌گیریم (نه iframe) تا روی همه‌ی پلتفرم‌ها یکسان کار کنه
+      const res = await fetch(Api.getAnalysisPdfUrl(examId), { credentials: 'omit' });
+      if (!res.ok) throw new Error('دریافت فایل PDF ناموفق بود (کد ' + res.status + ')');
+      const arrayBuffer = await res.arrayBuffer();
+      pdfDoc = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      analysisPdfDocCache[examId] = pdfDoc;
+    }
+    await renderAnalysisPdfPage(examId, analysisPdfPageGoto || 1);
+  } catch (e) {
+    scrollEl.innerHTML = `<div class="pdfjs-status"><span class="material-symbols-rounded" style="font-size:22px;">error</span>نمایش PDF ممکن نشد: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function renderAnalysisPdfPage(examId, pageNum) {
+  const pdfDoc = analysisPdfDocCache[examId];
+  const scrollEl = document.getElementById('pdfjsCanvasScroll');
+  const label = document.getElementById('pdfjsPageLabel');
+  const prevBtn = document.getElementById('pdfjsPrevBtn');
+  const nextBtn = document.getElementById('pdfjsNextBtn');
+  if (!pdfDoc || !scrollEl) return;
+
+  const clamped = Math.min(Math.max(1, pageNum), pdfDoc.numPages);
+  analysisPdfPageGoto = clamped;
+  const myToken = ++analysisPdfRenderToken;
+
+  if (label) label.textContent = `صفحه ${fa(clamped)} از ${fa(pdfDoc.numPages)}`;
+  if (prevBtn) prevBtn.disabled = clamped <= 1;
+  if (nextBtn) nextBtn.disabled = clamped >= pdfDoc.numPages;
+
+  const page = await pdfDoc.getPage(clamped);
+  if (myToken !== analysisPdfRenderToken) return; // یه رندر جدیدتر درخواست شده، این یکی رو ول کن
+
+  const containerWidth = Math.min(scrollEl.clientWidth - 20, 900);
+  const baseViewport = page.getViewport({ scale: 1 });
+  const scale = (containerWidth > 0 ? containerWidth : 320) / baseViewport.width;
+  const viewport = page.getViewport({ scale: Math.max(scale, 0.3) });
+
+  const canvas = document.createElement('canvas');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(viewport.width * dpr);
+  canvas.height = Math.floor(viewport.height * dpr);
+  canvas.style.width = Math.floor(viewport.width) + 'px';
+  canvas.style.height = Math.floor(viewport.height) + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  scrollEl.innerHTML = '';
+  scrollEl.appendChild(canvas);
+
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  if (myToken !== analysisPdfRenderToken) return;
+  scrollEl.scrollTop = 0;
+}
+
+function analysisPdfGoRelative(delta) {
+  if (!analysisSelectedExamId) return;
+  renderAnalysisPdfPage(analysisSelectedExamId, (analysisPdfPageGoto || 1) + delta);
+}
+
+// ---------------------------------------------------------------------------
+// پرش به صفحه‌ی سوال — با pdf.js دیگه نیازی به ری‌لود/iframe نیست،
+// فقط صفحه‌ی موردنظر رو روی همون canvas از سند PDF (که در حافظه کش
+// شده) دوباره رندر می‌کنیم. سریع، بدون دانلود مجدد، روی همه‌ی مرورگرها.
 // ---------------------------------------------------------------------------
 function jumpToAnalysisQuestionPage(examId, qNum) {
   const exam = analysisDetailCache[examId];
   if (!exam) return;
   const page = (exam.questionPageMap || {})[qNum] || (exam.questionPageMap || {})[String(qNum)];
   if (!page) { showToast('صفحه‌ی این سوال هنوز از نگاشت مشخص نیست', 'error'); return; }
-  analysisPdfPageGoto = page;
-  const frame = document.getElementById('analysisPdfFrame');
-  if (!frame) return;
-
-  // فقط عوض کردن fragment (#page=N) روی src فعلی، در خیلی از مرورگرها
-  // (به‌خصوص Chrome موبایل/WebView) هیچ navigation جدیدی راه نمی‌ندازه،
-  // چون از دید مرورگر URL بدون احتساب fragment فرقی نکرده. نتیجه‌ش
-  // این می‌شه که PDF viewer داخلی گاهی صفحه‌ی سفید نشون می‌ده یا
-  // اصلاً به صفحه‌ی جدید نمی‌پره.
-  // راه‌حل: iframe رو اول خالی (about:blank) می‌کنیم تا مرورگر مطمئن
-  // بشه سند فعلی عوض شده، بعد با یه تأخیر کوتاه src واقعی رو ست می‌کنیم
-  // تا یه navigation واقعی و کامل انجام بشه.
-  const baseUrl = Api.getAnalysisPdfUrl(examId);
-  const targetSrc = `${baseUrl}#page=${page}`;
-  frame.src = 'about:blank';
-  setTimeout(() => {
-    // اگه کاربر سریع چند بار پشت‌سرهم کلیک کرد، فقط جدیدترین درخواست
-    // اجرا بشه (analysisPdfPageGoto همیشه آخرین صفحه‌ی خواسته‌شده رو داره)
-    if (analysisPdfPageGoto === page) {
-      frame.src = targetSrc;
-    }
-  }, 50);
+  renderAnalysisPdfPage(examId, page).then(() => {
+    const wrap = document.querySelector('.pdfjs-wrap');
+    if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -468,6 +545,7 @@ function confirmDeleteAnalysisExam(examId) {
       try {
         await apiDeleteAnalysisExam(examId);
         delete analysisDetailCache[examId];
+        delete analysisPdfDocCache[examId];
         closeDialog();
         showToast('حذف شد');
         closeAnalysisExam();
