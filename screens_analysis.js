@@ -274,9 +274,10 @@ function renderAnalysisDetailBody(body, exam) {
 }
 
 // ---------------------------------------------------------------------------
-// FIX ۲: پرش به صفحه بدون دانلود مجدد PDF
-// فقط src iframe رو آپدیت می‌کنیم — مرورگر دوباره دانلود نمی‌کنه
-// (اگه قبلاً لود شده بود کش استفاده می‌کنه)
+// FIX ۲ (اصلاح‌شده): پرش قابل‌اعتماد به صفحه‌ی سوال داخل iframe
+// نسخه‌ی قبلی فقط #page=N رو روی src فعلی عوض می‌کرد که باعث می‌شد در
+// خیلی از مرورگرها/WebViewها هیچ navigation جدیدی رخ نده و صفحه سفید
+// بمونه. حالا iframe رو موقتاً خالی می‌کنیم تا navigation واقعی انجام بشه.
 // ---------------------------------------------------------------------------
 function jumpToAnalysisQuestionPage(examId, qNum) {
   const exam = analysisDetailCache[examId];
@@ -285,11 +286,26 @@ function jumpToAnalysisQuestionPage(examId, qNum) {
   if (!page) { showToast('صفحه‌ی این سوال هنوز از نگاشت مشخص نیست', 'error'); return; }
   analysisPdfPageGoto = page;
   const frame = document.getElementById('analysisPdfFrame');
-  if (frame) {
-    // فقط fragment رو عوض می‌کنیم — مرورگر PDF رو re-download نمی‌کنه
-    const baseUrl = Api.getAnalysisPdfUrl(examId);
-    frame.src = `${baseUrl}#page=${page}`;
-  }
+  if (!frame) return;
+
+  // فقط عوض کردن fragment (#page=N) روی src فعلی، در خیلی از مرورگرها
+  // (به‌خصوص Chrome موبایل/WebView) هیچ navigation جدیدی راه نمی‌ندازه،
+  // چون از دید مرورگر URL بدون احتساب fragment فرقی نکرده. نتیجه‌ش
+  // این می‌شه که PDF viewer داخلی گاهی صفحه‌ی سفید نشون می‌ده یا
+  // اصلاً به صفحه‌ی جدید نمی‌پره.
+  // راه‌حل: iframe رو اول خالی (about:blank) می‌کنیم تا مرورگر مطمئن
+  // بشه سند فعلی عوض شده، بعد با یه تأخیر کوتاه src واقعی رو ست می‌کنیم
+  // تا یه navigation واقعی و کامل انجام بشه.
+  const baseUrl = Api.getAnalysisPdfUrl(examId);
+  const targetSrc = `${baseUrl}#page=${page}`;
+  frame.src = 'about:blank';
+  setTimeout(() => {
+    // اگه کاربر سریع چند بار پشت‌سرهم کلیک کرد، فقط جدیدترین درخواست
+    // اجرا بشه (analysisPdfPageGoto همیشه آخرین صفحه‌ی خواسته‌شده رو داره)
+    if (analysisPdfPageGoto === page) {
+      frame.src = targetSrc;
+    }
+  }, 50);
 }
 
 // ---------------------------------------------------------------------------
