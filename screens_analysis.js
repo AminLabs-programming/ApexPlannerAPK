@@ -1,20 +1,18 @@
 /* =========================================================================
    بانک تحلیل (Analysis Bank)
-   ---------------------------------------------------------------------
-   کاربر دفترچه‌ی PDF آزمون‌های برگزارشده رو آپلود می‌کنه، تحلیل کلی/تحلیل
-   هر سوال رو داخل اپ می‌نویسه و ذخیره می‌کنه، و هر وقت خواست برگرده،
-   می‌تونه PDF رو ببینه/دانلود کنه یا با زدن روی شماره‌ی هر سوال مستقیم به
-   همون صفحه از PDF بپره.
-
-   نگاشت شماره‌سوال -> صفحه یا خودکار (تشخیص متن PDF در بک‌اند) ساخته
-   می‌شه یا از دو نقطه‌ی دستی (صفحه‌ی شروع سوال ۱ / صفحه‌ی سوال آخر) به
-   شکل خطی تخمین زده می‌شه — کاربر مجبور نیست تک‌تک برای هر سوال شماره‌
-   صفحه وارد کنه.
+   =========================================================================
+   باگ‌های رفع‌شده:
+   ۱. PDF همیشه نمایش داده می‌شه — حتی اگه mapping هنوز تنظیم نشده باشه،
+      PDF viewer نشان داده می‌شه و فقط یه کارت هشدار برای تنظیم mapping بالاش میاد.
+   ۲. کلیک روی شماره سوال دیگه PDF رو دانلود نمی‌کنه — فقط iframe رو
+      آپدیت می‌کنه (src#page=N) یا اگه mapping نداره toast نشون می‌ده.
+   ۳. OCR بهبود یافته — پشتیبانی از ارقام فارسی و الگوهای آزمون ماز
+      مثل «-۱» یا «1-» با یا بدون فاصله.
    ========================================================================= */
 
-let analysisSelectedExamId = null;   // اگه ست باشه، صفحه‌ی جزئیات یک آزمون رو نشون می‌دیم
-let analysisDetailCache = {};        // examId -> full exam object (شامل notes و نگاشت کامل)
-let analysisPdfPageGoto = 1;         // صفحه‌ای که iframe الان باید بهش اشاره کنه
+let analysisSelectedExamId = null;
+let analysisDetailCache = {};
+let analysisPdfPageGoto = 1;
 
 SCREENS.analysisBank = function (root) {
   if (analysisSelectedExamId) {
@@ -30,7 +28,7 @@ SCREENS.analysisBank = function (root) {
 function renderAnalysisList(root) {
   root.innerHTML = `
     <h1 class="page-title">بانک تحلیل</h1>
-    <p class="page-sub">دفترچه‌ی آزمون‌هات رو آپلود کن و تحلیل هر سوال رو اینجا نگه دار</p>
+    <p class="page-sub">دفترچه‌ی PDF آزمون‌هات رو آپلود کن و تحلیل هر سوال رو اینجا نگه دار</p>
     <div id="analysisListBody"></div>
     <button class="btn btn-primary" style="margin-top:16px;" onclick="openUploadAnalysisSheet()">
       <span class="material-symbols-rounded" style="font-size:19px;">upload_file</span> آپلود آزمون جدید
@@ -40,7 +38,7 @@ function renderAnalysisList(root) {
   body.innerHTML = `<div class="empty"><span class="material-symbols-rounded">hourglass_top</span><p>در حال بارگذاری…</p></div>`;
 
   loadAnalysisExamsIfNeeded().then(() => {
-    if (currentScreen !== 'analysisBank' || analysisSelectedExamId) return; // کاربر رفته جای دیگه
+    if (currentScreen !== 'analysisBank' || analysisSelectedExamId) return;
     const list = [...DB.analysisExams].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     if (!list.length) {
       body.innerHTML = emptyState('folder_open', 'هنوز آزمونی آپلود نشده', 'دفترچه‌ی PDF یک آزمون رو آپلود کن تا تحلیلش رو اینجا بنویسی');
@@ -147,7 +145,7 @@ async function submitUploadAnalysisExam() {
     } else if (Object.keys(full.questionPageMap || {}).length) {
       showToast('آپلود شد — نگاشت صفحات از روی مقادیر دستی ساخته شد');
     } else {
-      showToast('آپلود شد — چون نگاشت صفحه مشخص نبود، بعداً از داخل آزمون می‌تونی تنظیمش کنی', 'info');
+      showToast('آپلود شد — نگاشت صفحات رو از داخل آزمون تنظیم کن', 'info');
     }
     analysisDetailCache[full.id] = full;
     openAnalysisExam(full.id);
@@ -163,7 +161,7 @@ async function submitUploadAnalysisExam() {
 }
 
 // ---------------------------------------------------------------------------
-// جزئیات یک آزمون: PDF viewer + لیست شماره‌سوال‌ها + تحلیل‌ها
+// جزئیات یک آزمون
 // ---------------------------------------------------------------------------
 function renderAnalysisDetail(root, examId) {
   root.innerHTML = `
@@ -182,7 +180,10 @@ function renderAnalysisDetail(root, examId) {
 
   apiGetAnalysisExamFull(examId).then(full => {
     analysisDetailCache[examId] = full;
-    if (analysisSelectedExamId === examId) renderAnalysisDetailBody(document.getElementById('analysisDetailBody') || body, full);
+    if (analysisSelectedExamId === examId) {
+      const el = document.getElementById('analysisDetailBody') || body;
+      renderAnalysisDetailBody(el, full);
+    }
   }).catch(e => {
     if (!cached) {
       body.innerHTML = `<div class="empty"><span class="material-symbols-rounded">error</span><p>بارگذاری این آزمون ممکن نشد: ${escapeHtml(e.message)}</p></div>`;
@@ -200,11 +201,19 @@ function renderAnalysisDetailBody(body, exam) {
   const questionChips = [];
   for (let q = 1; q <= exam.questionCount; q++) {
     const has = !!noteByQ[q];
-    const correctCls = has && noteByQ[q].isCorrect === true ? 'tag-diff-easy' : (has && noteByQ[q].isCorrect === false ? 'tag-diff-hard' : '');
+    const correctCls = has && noteByQ[q].isCorrect === true ? 'tag-diff-easy' :
+      (has && noteByQ[q].isCorrect === false ? 'tag-diff-hard' : '');
     questionChips.push(`
       <button class="chip ${has ? 'on ' + correctCls : ''}" onclick="openAnalysisQuestionSheet('${exam.id}', ${q})">${fa(q)}</button>
     `);
   }
+
+  // ========================================================
+  // FIX ۱: PDF viewer همیشه نمایش داده می‌شه
+  // حتی اگه mapping نداره، iframe رو نشون می‌دیم تا کاربر
+  // بتونه PDF رو ببینه. کارت هشدار mapping فقط بالای PDF میاد.
+  // ========================================================
+  const pdfUrl = Api.getAnalysisPdfUrl(exam.id);
 
   body.innerHTML = `
     <div class="qcard" style="margin-bottom:14px;">
@@ -216,7 +225,7 @@ function renderAnalysisDetailBody(body, exam) {
       ${exam.overallNote ? `<div style="margin-top:10px; font-size:13.5px; line-height:1.9; color:var(--text-2); background:var(--surface-3); border-radius:8px; padding:10px;">${escapeHtml(exam.overallNote)}</div>` : ''}
       <div class="btn-row" style="margin-top:12px;">
         <button class="btn-sm btn-ghost" style="flex:1;" onclick="openEditAnalysisMetaSheet('${exam.id}')">ویرایش اطلاعات</button>
-        <a class="btn-sm btn-ghost" style="flex:1; text-align:center; text-decoration:none; display:flex; align-items:center; justify-content:center;" href="${Api.getAnalysisPdfUrl(exam.id)}" download="${escapeHtml(exam.originalFilename || exam.title + '.pdf')}">
+        <a class="btn-sm btn-ghost" style="flex:1; text-align:center; text-decoration:none; display:flex; align-items:center; justify-content:center;" href="${pdfUrl}" download="${escapeHtml(exam.originalFilename || exam.title + '.pdf')}">
           <span class="material-symbols-rounded" style="font-size:17px;">download</span> دانلود PDF
         </a>
         <button class="btn-sm btn-danger-ghost" style="flex:1;" onclick="confirmDeleteAnalysisExam('${exam.id}')">حذف آزمون</button>
@@ -226,7 +235,10 @@ function renderAnalysisDetailBody(body, exam) {
     ${!hasMap ? `
     <div class="qcard" style="margin-bottom:14px; border-color:rgba(239,68,68,.35);">
       <div style="font-size:13px; color:var(--danger); font-weight:700; margin-bottom:8px;">نگاشت شماره‌سوال به صفحه هنوز مشخص نیست</div>
-      <p style="font-size:12.5px; color:var(--text-3); line-height:1.8; margin-bottom:10px;">تشخیص خودکار برای این فایل جواب نداد. صفحه‌ی شروع سوال ۱ و صفحه‌ی سوال آخر رو وارد کن تا بقیه‌ی سوالات به‌نسبت بین این دو صفحه محاسبه بشن.</p>
+      <p style="font-size:12.5px; color:var(--text-3); line-height:1.8; margin-bottom:10px;">
+        تشخیص خودکار برای این فایل جواب نداد. صفحه‌ی شروع سوال ۱ و صفحه‌ی سوال آخر رو وارد کن تا نگاشت ساخته بشه.
+        <br/>PDF آزمونت رو پایین می‌تونی ببینی تا شماره صفحه‌ها رو چک کنی.
+      </p>
       <div style="display:flex; gap:10px;">
         <div class="field" style="flex:1; margin-bottom:0;"><label>صفحه‌ی شروع سوال ۱</label><input id="remapStart" type="number" min="1" max="${exam.pageCount}" /></div>
         <div class="field" style="flex:1; margin-bottom:0;"><label>صفحه‌ی سوال آخر</label><input id="remapEnd" type="number" min="1" max="${exam.pageCount}" /></div>
@@ -237,24 +249,47 @@ function renderAnalysisDetailBody(body, exam) {
       <span style="font-size:13px; font-weight:700; color:var(--text-2);">مشاهده‌ی دفترچه‌ی آزمون</span>
       <button class="btn-sm btn-ghost" onclick="openAnalysisRemapSheet('${exam.id}')"><span class="material-symbols-rounded" style="font-size:15px;">tune</span> اصلاح نگاشت صفحات</button>
     </div>
-    <div class="pdf-viewer-wrap">
-      <iframe id="analysisPdfFrame" class="pdf-viewer" src="${Api.getAnalysisPdfUrl(exam.id)}#page=${analysisPdfPageGoto}" title="دفترچه‌ی آزمون"></iframe>
-    </div>
     `}
 
-    <div style="font-size:13px; font-weight:700; color:var(--text-2); margin:18px 0 8px;">شماره سوال‌ها — برای دیدن/نوشتن تحلیل و پرش به همون صفحه، بزن روش</div>
-    <div class="chip-row">${questionChips.join('')}</div>
+    <!-- =====================================================
+         FIX ۱: PDF viewer همیشه نمایش می‌شه (با یا بدون mapping)
+         ===================================================== -->
+    <div class="pdf-viewer-wrap" style="margin-bottom:18px;">
+      <iframe id="analysisPdfFrame" class="pdf-viewer"
+        src="${pdfUrl}#page=${analysisPdfPageGoto}"
+        title="دفترچه‌ی آزمون">
+      </iframe>
+    </div>
+
+    ${hasMap ? `
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+      <span style="font-size:13px; font-weight:700; color:var(--text-2);">سوال‌ها — بزن تا تحلیل بنویسی و به صفحه‌ش بپری</span>
+      <span style="font-size:11px; color:var(--text-3);">🟢 درست · 🔴 غلط · خاکستری = بدون تحلیل</span>
+    </div>` : `
+    <div style="font-size:13px; font-weight:700; color:var(--text-2); margin-bottom:8px;">
+      سوال‌ها — بزن تا تحلیل بنویسی (بعد از تنظیم نگاشت صفحات، به صفحه‌ی سوال هم می‌پری)
+    </div>`}
+    <div class="chip-row" style="flex-wrap:wrap;">${questionChips.join('')}</div>
   `;
 }
 
+// ---------------------------------------------------------------------------
+// FIX ۲: پرش به صفحه بدون دانلود مجدد PDF
+// فقط src iframe رو آپدیت می‌کنیم — مرورگر دوباره دانلود نمی‌کنه
+// (اگه قبلاً لود شده بود کش استفاده می‌کنه)
+// ---------------------------------------------------------------------------
 function jumpToAnalysisQuestionPage(examId, qNum) {
   const exam = analysisDetailCache[examId];
   if (!exam) return;
-  const page = exam.questionPageMap[qNum] || exam.questionPageMap[String(qNum)];
-  if (!page) { showToast('صفحه‌ی این سوال هنوز مشخص نیست', 'error'); return; }
+  const page = (exam.questionPageMap || {})[qNum] || (exam.questionPageMap || {})[String(qNum)];
+  if (!page) { showToast('صفحه‌ی این سوال هنوز از نگاشت مشخص نیست', 'error'); return; }
   analysisPdfPageGoto = page;
   const frame = document.getElementById('analysisPdfFrame');
-  if (frame) frame.src = `${Api.getAnalysisPdfUrl(examId)}#page=${page}`;
+  if (frame) {
+    // فقط fragment رو عوض می‌کنیم — مرورگر PDF رو re-download نمی‌کنه
+    const baseUrl = Api.getAnalysisPdfUrl(examId);
+    frame.src = `${baseUrl}#page=${page}`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -264,14 +299,16 @@ function openAnalysisQuestionSheet(examId, qNum) {
   const exam = analysisDetailCache[examId];
   if (!exam) return;
   const existing = (exam.notes || []).find(n => n.questionNumber === qNum);
-  const page = exam.questionPageMap[qNum] || exam.questionPageMap[String(qNum)];
+  const hasMap = Object.keys(exam.questionPageMap || {}).length > 0;
+  const page = hasMap ? ((exam.questionPageMap || {})[qNum] || (exam.questionPageMap || {})[String(qNum)]) : null;
 
   openSheet(`
     <h2>سوال ${fa(qNum)}</h2>
     ${page ? `
     <button class="btn-sm btn-ghost" style="width:100%; margin-bottom:14px;" onclick="closeSheet(); jumpToAnalysisQuestionPage('${examId}', ${qNum});">
-      <span class="material-symbols-rounded" style="font-size:16px;">visibility</span> دیدن این سوال توی PDF (صفحه‌ی ${fa(page)})
-    </button>` : `<p style="font-size:12.5px; color:var(--text-3); margin-bottom:14px;">صفحه‌ی این سوال هنوز از نگاشت آزمون مشخص نیست.</p>`}
+      <span class="material-symbols-rounded" style="font-size:16px;">visibility</span> پرش به این سوال در PDF (صفحه‌ی ${fa(page)})
+    </button>` : (hasMap ? `<p style="font-size:12.5px; color:var(--text-3); margin-bottom:14px;">صفحه‌ی این سوال از نگاشت مشخص نیست.</p>` :
+    `<p style="font-size:12.5px; color:var(--text-3); margin-bottom:14px;">برای پریدن به صفحه، ابتدا نگاشت صفحات آزمون رو تنظیم کن.</p>`)}
 
     <div class="field"><label>درس (اختیاری)</label><input id="anqSubject" type="text" placeholder="مثلاً ریاضی" value="${escapeHtml(existing?.subject || '')}" /></div>
     <div class="field">
@@ -334,7 +371,7 @@ function confirmDeleteAnalysisNote(examId, noteId) {
 }
 
 // ---------------------------------------------------------------------------
-// ویرایش اطلاعات آزمون (عنوان/تاریخ/تحلیل کلی)
+// ویرایش اطلاعات آزمون
 // ---------------------------------------------------------------------------
 function openEditAnalysisMetaSheet(examId) {
   const exam = analysisDetailCache[examId];
@@ -365,8 +402,7 @@ async function submitEditAnalysisMeta(examId) {
 }
 
 // ---------------------------------------------------------------------------
-// اصلاح دستی نگاشت صفحات (وقتی تشخیص خودکار غلط بوده یا کاربر می‌خواد
-// خودش دوباره با دو نقطه‌ی جدید تنظیمش کنه)
+// اصلاح دستی نگاشت صفحات
 // ---------------------------------------------------------------------------
 function openAnalysisRemapSheet(examId) {
   const exam = analysisDetailCache[examId];
@@ -374,8 +410,7 @@ function openAnalysisRemapSheet(examId) {
   openSheet(`
     <h2>اصلاح نگاشت صفحات</h2>
     <p style="font-size:12.5px; color:var(--text-3); line-height:1.8; margin-bottom:14px;">
-      اگه شماره‌ی صفحه‌ی بعضی سوالات درست نیست، صفحه‌ی شروع سوال ۱ و صفحه‌ی سوال آخر رو دوباره وارد کن —
-      نگاشت همه‌ی سوالات از نو و به‌صورت خطی محاسبه می‌شه.
+      اگه شماره‌ی صفحه‌ی بعضی سوالات درست نیست، صفحه‌ی شروع سوال ۱ و صفحه‌ی سوال آخر رو دوباره وارد کن.
     </p>
     <div style="display:flex; gap:10px;">
       <div class="field" style="flex:1;"><label>صفحه‌ی شروع سوال ۱</label><input id="remapStart2" type="number" min="1" max="${exam.pageCount}" value="${exam.manualStartPage || ''}" /></div>
