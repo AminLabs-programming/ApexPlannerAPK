@@ -254,22 +254,41 @@ function alarmFromApi(a) {
 }
 function analysisExamListFromApi(e) {
   return {
-    id: e.id, title: e.title, date: e.date || '', pageCount: e.page_count,
-    questionCount: e.question_count, mappingMethod: e.mapping_method,
+    id: e.id, title: e.title, date: e.date || '', grade: e.grade ?? null, gradeLabel: e.grade_label || '',
+    pageCount: e.page_count, questionCount: e.question_count, mappingMethod: e.mapping_method,
     overallNote: e.overall_note || '', notesCount: e.notes_count || 0, createdAt: e.created_at,
+  };
+}
+function analysisNoteFromApi(n) {
+  return {
+    id: n.id, examId: n.exam_id, questionNumber: n.question_number,
+    subject: n.subject || '', subjectCode: n.subject_code || '', category: n.category || '',
+    subjectLabel: n.subject_label || '', note: n.note || '',
+    isCorrect: n.is_correct, answerStatus: n.answer_status || 'unanswered', page: n.page,
   };
 }
 function analysisExamFullFromApi(e) {
   return {
-    id: e.id, title: e.title, date: e.date || '', originalFilename: e.original_filename || '',
+    id: e.id, title: e.title, date: e.date || '', grade: e.grade ?? null, gradeLabel: e.grade_label || '',
+    originalFilename: e.original_filename || '',
     pageCount: e.page_count, questionCount: e.question_count,
     questionPageMap: e.question_page_map || {}, mappingMethod: e.mapping_method,
     manualStartPage: e.manual_start_page, manualEndPage: e.manual_end_page,
     overallNote: e.overall_note || '', createdAt: e.created_at,
-    notes: (e.notes || []).map(n => ({
-      id: n.id, examId: n.exam_id, questionNumber: n.question_number,
-      subject: n.subject || '', note: n.note || '', isCorrect: n.is_correct, page: n.page,
-    })),
+    notes: (e.notes || []).map(analysisNoteFromApi),
+  };
+}
+// یک ردیف نتیجه‌ی فیلتر ترکیبیِ GET /analysis-notes: تحلیلِ یک سؤال + اطلاعات
+// کافی از آزمونِ مادرش، برای نمایش در فهرست نتایج و پرش مستقیم به همون سؤال.
+function analysisNoteWithExamFromApi(n) {
+  return {
+    id: n.id, examId: n.exam_id, examTitle: n.exam_title, examDate: n.exam_date || '',
+    examGrade: n.exam_grade ?? null, examGradeLabel: n.exam_grade_label || '',
+    questionNumber: n.question_number,
+    subject: n.subject || '', subjectCode: n.subject_code || '', category: n.category || '',
+    categoryLabel: n.category_label || '', subjectLabel: n.subject_label || '',
+    note: n.note || '', isCorrect: n.is_correct, answerStatus: n.answer_status || 'unanswered',
+    page: n.page,
   };
 }
 
@@ -894,8 +913,8 @@ async function apiUploadAnalysisExam(meta, file) {
   const full = analysisExamFullFromApi(created);
   await withDbLock(async () => {
     DB.analysisExams.unshift({
-      id: full.id, title: full.title, date: full.date, pageCount: full.pageCount,
-      questionCount: full.questionCount, mappingMethod: full.mappingMethod,
+      id: full.id, title: full.title, date: full.date, grade: full.grade, gradeLabel: full.gradeLabel,
+      pageCount: full.pageCount, questionCount: full.questionCount, mappingMethod: full.mappingMethod,
       overallNote: full.overallNote, notesCount: full.notes.length, createdAt: full.createdAt,
     });
     await persistDbNow();
@@ -913,7 +932,11 @@ async function apiUpdateAnalysisExamMeta(examId, payload) {
   await withDbLock(async () => {
     const idx = DB.analysisExams.findIndex(x => x.id === examId);
     if (idx >= 0) {
-      DB.analysisExams[idx] = { ...DB.analysisExams[idx], title: updated.title, date: updated.date || '', overallNote: updated.overall_note || '' };
+      DB.analysisExams[idx] = {
+        ...DB.analysisExams[idx], title: updated.title, date: updated.date || '',
+        grade: updated.grade ?? null, gradeLabel: updated.grade_label || '',
+        overallNote: updated.overall_note || '',
+      };
     }
     await persistDbNow();
   });
@@ -941,16 +964,19 @@ async function apiDeleteAnalysisExam(examId) {
 async function apiUpsertAnalysisNote(examId, payload) {
   const note = await Api.upsertAnalysisNote(examId, payload);
   await withDbLock(async () => {
-    const idx = DB.analysisExams.findIndex(x => x.id === examId);
-    if (idx >= 0) {
-      // notesCount ممکنه دقیقاً درست نباشه اگه این ویرایش (نه ساخت) بوده؛
-      // برای سادگی، بعد از هر تغییر یادداشت، لیست رو force-refresh می‌کنیم
-      // که مقدار notesCount هم از سرور درست بیاد.
-    }
     await persistDbNow();
   });
   loadAnalysisExamsIfNeeded(true); // fire-and-forget refresh برای درست‌شدن notesCount توی لیست
-  return { id: note.id, examId: note.exam_id, questionNumber: note.question_number, subject: note.subject || '', note: note.note || '', isCorrect: note.is_correct, page: note.page };
+  return analysisNoteFromApi(note);
+}
+
+// جست‌وجوی ترکیبی بین همه‌ی آزمون‌های کاربر؛ filters = { grade, category, subject, status }
+// (هر کدوم نیاد یعنی «همه»). این تابع عمداً از کش/outbox رد نمی‌شه — همیشه یک
+// درخواست تازه به سرور می‌زنه، چون معنایی برای کش‌کردنِ نتایج فیلترهای دلخواه
+// در IndexedDB نیست (ترکیب‌های ممکن خیلی زیادن).
+async function apiListAnalysisNotes(filters) {
+  const rows = await Api.listAnalysisNotes(filters || {});
+  return rows.map(analysisNoteWithExamFromApi);
 }
 
 async function apiDeleteAnalysisNote(examId, noteId) {

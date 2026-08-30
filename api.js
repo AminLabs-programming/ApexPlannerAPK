@@ -153,13 +153,15 @@ const Api = (() => {
     adminNotionSync: (date) => request("POST", "/admin/notion/sync", { json: { date: date || null } }),
 
     // ---- analysis bank (بانک تحلیل) ----
-    listAnalysisExams: () => request("GET", "/analysis-exams"),
+    // params اختیاریه: { grade } برای فیلتر لیست آزمون‌ها بر اساس پایه
+    listAnalysisExams: (params) => request("GET", "/analysis-exams", { params }),
     getAnalysisExam: (id) => request("GET", `/analysis-exams/${id}`),
-    // آپلود PDF: multipart/form-data. meta = {title,date,question_count,manual_start_page,manual_end_page,overall_note}
+    // آپلود PDF: multipart/form-data. meta = {title,date,grade,question_count,manual_start_page,manual_end_page,overall_note}
     createAnalysisExam: (meta, file) => {
       const fd = new FormData();
       fd.append("title", meta.title);
       fd.append("date", meta.date || "");
+      fd.append("grade", String(meta.grade));
       fd.append("question_count", String(meta.question_count));
       if (meta.manual_start_page != null) fd.append("manual_start_page", String(meta.manual_start_page));
       if (meta.manual_end_page != null) fd.append("manual_end_page", String(meta.manual_end_page));
@@ -173,6 +175,10 @@ const Api = (() => {
     deleteAnalysisExam: (id) => request("DELETE", `/analysis-exams/${id}`),
     upsertAnalysisNote: (examId, payload) => request("POST", `/analysis-exams/${examId}/notes`, { json: payload }),
     deleteAnalysisNote: (examId, noteId) => request("DELETE", `/analysis-exams/${examId}/notes/${noteId}`),
+    // جست‌وجوی ترکیبی بین همه‌ی آزمون‌های کاربر: params اختیاریه و می‌تونه هر
+    // ترکیبی از { grade, category, subject, status } باشه (هر کدوم نیاد یعنی
+    // «همه»). برای «بانک تحلیل» — فیلتر/تاریخچه (مرحله‌ی ۵ و ۸).
+    listAnalysisNotes: (params) => request("GET", "/analysis-notes", { params }),
     // <iframe>/دانلود نمی‌تونن هدر Authorization بفرستن، پس توکن رو به‌صورت
     // query param توی خود URL می‌ذاریم (بک‌اند این route رو جدا از بقیه
     // این‌طوری قبول می‌کنه — نه به‌عنوان الگوی عمومی برای سایر route ها).
