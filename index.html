@@ -10,8 +10,8 @@
 <meta name="apple-mobile-web-app-title" content="اپکس پلنر"/>
 <title>اپکس پلنر — دستیار کنکور</title>
 <link rel="manifest" href="manifest.json"/>
-<link rel="apple-touch-icon" href="icon-192.png"/>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230f172a'/%3E%3Cpath d='M50 20 L78 75 L60 75 L50 52 L40 75 L22 75 Z' fill='%236366f1'/%3E%3C/svg%3E"/>
+<link rel="apple-touch-icon" href="apple-touch-icon.png"/>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 
@@ -69,13 +69,22 @@ body{
   min-height:100vh;
   -webkit-font-smoothing:antialiased;
   -moz-osx-font-smoothing:grayscale;
+  overscroll-behavior:none;
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
 }
+html{overscroll-behavior:none;}
+input,textarea,[contenteditable="true"]{-webkit-user-select:text; user-select:text;}
 .material-symbols-rounded{
   font-variation-settings:'FILL' 0,'wght' 500,'GRAD' 0,'opsz' 24;
   line-height:1;
   vertical-align:middle;
 }
-::-webkit-scrollbar{width:0;height:0;}
+html{scrollbar-width:none;-ms-overflow-style:none;}
+::-webkit-scrollbar{width:0;height:0;display:none;}
+*{scrollbar-width:none;-ms-overflow-style:none;}
+*::-webkit-scrollbar{width:0;height:0;display:none;}
 button{font-family:inherit; cursor:pointer;}
 input,textarea,select{font-family:inherit;}
 a{color:inherit; text-decoration:none;}
@@ -105,6 +114,7 @@ a{color:inherit; text-decoration:none;}
   background:linear-gradient(45deg,transparent,rgba(255,255,255,.35),transparent);
   transform:translateX(-100%); animation:shimmer 3.5s ease-in-out infinite;
 }
+.brand-mark-img{width:66%;height:66%;object-fit:contain;position:relative;z-index:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,.35));}
 @keyframes shimmer{to{transform:translateX(100%);}}
 .brand-name{font-weight:900; font-size:19px; letter-spacing:-.02em; background:linear-gradient(135deg,#fff,#e0e7ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; text-shadow:0 2px 10px rgba(99,102,241,.3);}
 .icon-btn{
@@ -479,7 +489,7 @@ a{color:inherit; text-decoration:none;}
   <!-- ============ TOP BAR ============ -->
   <div class="topbar">
     <div class="brand">
-      <div class="brand-mark">🎯</div>
+      <div class="brand-mark"><img src="logo.png" alt="اپکس پلنر" class="brand-mark-img"/></div>
       <div class="brand-name">اپکس پلنر</div>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">

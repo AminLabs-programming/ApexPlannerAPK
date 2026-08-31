@@ -35,7 +35,7 @@ function renderAuthForm(errorMsg) {
   el.innerHTML = `
     <div style="width:100%; max-width:380px;">
       <div style="text-align:center; margin-bottom:28px;">
-        <div style="width:64px;height:64px;border-radius:18px; margin:0 auto 14px; background:linear-gradient(135deg,var(--primary-bright),var(--primary-dim)); display:flex; align-items:center; justify-content:center; font-size:28px; box-shadow:0 10px 30px -6px var(--primary-glow);">🎯</div>
+        <div style="width:64px;height:64px;border-radius:18px; margin:0 auto 14px; background:linear-gradient(135deg,var(--primary-bright),var(--primary-dim)); display:flex; align-items:center; justify-content:center; box-shadow:0 10px 30px -6px var(--primary-glow); overflow:hidden;"><img src="logo.png" alt="اپکس پلنر" style="width:68%;height:68%;object-fit:contain;"/></div>
         <div style="font-weight:800; font-size:20px; color:var(--text-1);">اپکس پلنر</div>
         <div style="font-size:12.5px; color:var(--text-2); margin-top:4px;">دستیار کنکور — نسخه‌ی گروهی</div>
       </div>

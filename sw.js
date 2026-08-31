@@ -1,4 +1,4 @@
-const CACHE_NAME = 'apex-planner-v3';
+const CACHE_NAME = 'apex-planner-v4';
 const ASSETS = [
   './index.html',
   './config.js',
@@ -18,7 +18,11 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './icon-maskable-192.png',
-  './icon-maskable-512.png'
+  './icon-maskable-512.png',
+  './icon-1024.png',
+  './logo.png',
+  './apple-touch-icon.png',
+  './favicon-32.png'
 ];
 
 self.addEventListener('install', (event) => {
