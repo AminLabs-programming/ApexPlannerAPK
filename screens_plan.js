@@ -51,6 +51,9 @@ SCREENS.plan = function (root) {
     <button class="btn btn-primary" style="margin-top:18px;" onclick="openAddPlanSheet('${dateStr}')">
       <span class="material-symbols-rounded" style="font-size:19px;">add</span> افزودن پارت جدید
     </button>
+    <button class="btn btn-ghost" style="margin-top:10px;" onclick="onCarryOverClick('${dateStr}')">
+      <span class="material-symbols-rounded" style="font-size:19px;">sync_alt</span> ساخت پارت جبرانی از روز قبل
+    </button>
   `;
 
   const filtered = planFilter === 'all' ? items : items.filter(i => i.category === planFilter);
@@ -68,6 +71,29 @@ function setPlanFilter(f) { planFilter = f; rerender(); }
 function shiftPlanDate(delta) {
   planViewDate = Jalali.addDays(planViewDate, delta);
   rerender();
+}
+
+// ساخت دستی پارت‌های جبرانی: پارت‌های انجام‌نشده‌ی روزِ *قبلِ* روزی که کاربر
+// الان توی صفحه‌ی برنامه داره می‌بینه، برای همون روز کپی می‌شن. قبلاً این کار
+// خودکار و هر بار باز شدن اپ انجام می‌شد؛ الان فقط با همین دکمه انجام می‌شه.
+function onCarryOverClick(dateStr) {
+  const prevDateStr = Jalali.addDays(dateStr, -1);
+  const jp = Jalali.gregorianStrToJalaliParts(prevDateStr);
+  const prevLabel = `${fa(jp.jd)} ${Jalali.MONTHS[jp.jm - 1]}`;
+  openDialog({
+    icon: 'sync_alt', title: 'ساخت پارت جبرانی',
+    text: `پارت‌های انجام‌نشده‌ی ${prevLabel} به‌عنوان «(جبرانی)» برای این روز ساخته بشن؟`,
+    confirmText: 'بساز', confirmClass: 'btn-primary',
+    onConfirm: async () => {
+      try {
+        const count = await carryOverUnfinished(prevDateStr, dateStr);
+        closeDialog();
+        if (count > 0) showToast(`${fa(count)} پارت جبرانی ساخته شد`);
+        else showToast('پارت انجام‌نشده‌ای برای جبران کردن نبود');
+        rerender();
+      } catch (e) { closeDialog(); }
+    }
+  });
 }
 
 function renderPlanItemRowFull(item) {

@@ -5,7 +5,8 @@
    - دسته‌ها: درسی / توسعه فردی / غیردرسی
    - هر پارت «درسی» وقتی تیک می‌خوره، دقیقه مطالعه + تعداد تست ثبت می‌شه
    - هفته‌ی شمسی از شنبه تا جمعه؛ بازه‌ی «آمار هفتگی» از پنجشنبه تا پنجشنبه بعد
-   - پارت‌های انجام‌نشده‌ی آخر شب به‌صورت خودکار «(جبرانی)» برای فردا کپی می‌شن
+   - پارت‌های انجام‌نشده رو کاربر با یه دکمه توی صفحه‌ی برنامه، دستی، برای
+     روزی که خودش انتخاب می‌کنه، «(جبرانی)» می‌سازه (دیگه خودکار نیست)
    ========================================================================= */
 
 // ---------------------------------------------------------------------------
@@ -730,22 +731,19 @@ async function createMakeupItem(original, dateStr) {
   const title = original.name.includes('(جبرانی)') ? original.name : `${original.name} (جبرانی)`;
   return addPlanItem({ name: title, date: dateStr, category: original.category });
 }
-// carry over unfinished items from a date to the next day, tagging as makeup — run lazily
-async function runCarryOverIfNeeded() {
-  const today = Jalali.todayStr();
-  const lastRun = localStorage.getItem('apex_carry_last') || '';
-  if (lastRun === today) return;
-  const yesterday = Jalali.addDays(today, -1);
-  const items = getItemsForDate(yesterday);
+// carry over unfinished items from `fromDateStr` to `toDateStr`, tagging as makeup.
+// این دیگه خودکار صدا زده نمی‌شه — کاربر با یه دکمه توی صفحه‌ی برنامه دستی
+// اجراش می‌کنه (برای همون روزی که خودش انتخاب می‌کنه).
+async function carryOverUnfinished(fromDateStr, toDateStr) {
+  const items = getItemsForDate(fromDateStr);
   let count = 0;
   for (const it of items) {
     if (!it.status) {
-      const already = getItemsForDate(today).some(x => x.name === (it.name.includes('(جبرانی)') ? it.name : it.name + ' (جبرانی)'));
-      if (!already) { await createMakeupItem(it, today); count++; }
+      const already = getItemsForDate(toDateStr).some(x => x.name === (it.name.includes('(جبرانی)') ? it.name : it.name + ' (جبرانی)'));
+      if (!already) { await createMakeupItem(it, toDateStr); count++; }
     }
   }
-  localStorage.setItem('apex_carry_last', today);
-  if (count > 0) { setTimeout(() => showToast(`${fa(count)} پارت مونده دیروز، برای امروز منتقل شد`), 800); }
+  return count;
 }
 
 // ---------------------------------------------------------------------------
@@ -1178,7 +1176,6 @@ async function bootAfterLogin() {
   }
 
   hideAuthScreen();
-  await runCarryOverIfNeeded();
   checkAlarmsLoop();
   updateSyncBadge();
   go('home');
