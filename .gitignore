@@ -1,1 +1,0 @@
-Nothing should be ignored since the modified files (api.js, auth.js, main.py) are all source code files without any build artifacts, dependencies, or temporary files in the changes.
